@@ -113,8 +113,31 @@ shadow-augmented ones.
 **Known gaps to address before any real-world use:**
 - Trained purely on synthetic data — hasn't seen a real photo yet. Needs
   real (or far more realistic) KTP images before it's trustworthy.
-- Detection only corrects in-plane rotation, not true perspective distortion
-  (a steeply-angled photo needs a 4-corner keypoint model).
+- **Perspective correction, not just rotation, is now implemented** —
+  `YoloDetectionService` finds the card's 4 corners (contour + `approxPolyDP`)
+  and applies a proper `warpPerspective`, falling back to the old
+  rotation-only correction when a clean quadrilateral can't be resolved.
+  Verified: a clean/rotated test card now comes out perfectly flat (previously
+  just reduced tilt); a heavily perspective-warped + blurred/noisy one is
+  meaningfully improved but not perfectly flat — classical CV corner-finding
+  gets less precise once other degradations stack on top, which is the known
+  limit of this approach (a learned 4-corner keypoint model would be the next
+  step up if this proves insufficient on real photos).
+  Getting here surfaced and fixed a real dataset-generation bug along the
+  way: `ktp_dataset_generator.py`'s `compose_scene` used to rotate the card
+  with a solid black `fillcolor`, which baked an artificial axis-aligned
+  black square around every tilted card — classical contour-detection was
+  finding *that* square instead of the card's true edge. Fixed by rotating
+  in RGBA and pasting with the alpha channel as the mask, so the real scene
+  background shows through the tilted corners instead (also just makes the
+  synthetic data more realistic). Dataset regenerated, detector retrained
+  (mAP50 0.995, mAP50-95 0.983).
+  One regression surfaced during verification, not yet root-caused: on the
+  now much-tighter crop, `alamat` sometimes grabs the next field's label
+  text instead of its own value, and `provinsi`/`berlaku_hingga` sometimes
+  come back empty — likely the tighter crop shifting text-line positions
+  enough to affect the geometric label→value matching in
+  `services/ocr/ktp_ocr/field_labels.py`.
 - **OCR latency is ~3-4s/request, CPU only** (down from ~12-14s). Two CPU-only
   optimizations got it there: skipping PaddleOCR's redundant doc-orientation/
   unwarping/textline-orientation stages (already deskewed upstream), and

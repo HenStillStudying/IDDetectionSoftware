@@ -191,9 +191,16 @@ def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
                              random.randint(30,200),
                              random.randint(30,200)))
 
-    # Random slight rotation of card (-15 to +15 deg)
+    # Random slight rotation of card (-15 to +15 deg). Rotating in RGBA and
+    # pasting with the alpha channel as a mask means only the tilted card's
+    # own pixels land on the scene — the corners of rotate()'s bounding
+    # square stay transparent, so the real scene background shows through
+    # them instead of an artificial black square. (A solid fillcolor there
+    # previously created a second, axis-aligned high-contrast edge that
+    # confused contour-based deskewing downstream — it was picking up that
+    # square instead of the card's true tilted silhouette.)
     angle   = random.uniform(-15, 15)
-    rotated = ktp_img.rotate(angle, expand=True, fillcolor=(0,0,0))
+    rotated = ktp_img.convert("RGBA").rotate(angle, expand=True)
 
     rw, rh = rotated.size
     # Random position: card stays mostly inside scene
@@ -202,7 +209,7 @@ def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
     px    = random.randint(0, max(0, max_x))
     py    = random.randint(0, max(0, max_y))
 
-    scene.paste(rotated, (px, py))
+    scene.paste(rotated, (px, py), mask=rotated)
 
     # Bounding box of the card in scene coordinates (xyxy)
     x1, y1 = px, py

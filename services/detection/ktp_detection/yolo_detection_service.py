@@ -1,14 +1,21 @@
 """Real DetectionService implementation backed by a trained YOLO model.
 
 NOTE on rectification: the model predicts an axis-aligned bounding box, not
-the card's four corners, so localization alone leaves a rotated card rotated
-in the crop. `_deskew` closes most of that gap with classic CV (contour +
-minAreaRect) rather than a learned model: it finds the card's edge within the
-padded crop, measures its tilt, and rotates it upright. This still isn't true
-perspective correction (a card photographed at a steep angle will be
-stretched, not just rotated) — that needs a 4-corner keypoint model — but it
-handles the common case of a flat card photographed at a rotation, which is
-what our detector's axis-aligned box otherwise leaves uncorrected.
+the card's four corners, so localization alone leaves a tilted card tilted
+in the crop. `_deskew` closes that gap with classic CV rather than a learned
+model: it finds the card's contour within the padded crop, reduces it to its
+four corner points, and applies a perspective warp to flatten it to an
+upright rectangle. This handles true perspective distortion (a card
+photographed at an angle, not just rotated in-plane) as well as simple
+rotation, since a rotated rectangle is just a special case of a quadrilateral
+with four corners.
+
+If a clean 4-point quadrilateral can't be resolved (rounded corners,
+occlusion, background clutter), it falls back to a rotation-only correction
+(minAreaRect-based) rather than leaving the card uncorrected. This is still
+classic CV, not a learned model, so it will be less robust than a trained
+keypoint model on cluttered real-world backgrounds — that's the next step up
+if this proves insufficient.
 """
 
 from __future__ import annotations
@@ -25,6 +32,7 @@ from ktp_schema import BoundingBox
 DEFAULT_CONFIDENCE_THRESHOLD = 0.4
 CROP_MARGIN_RATIO = 0.05  # extra margin around the predicted box, as a fraction of its size
 MIN_CONTOUR_AREA_RATIO = 0.15  # skip deskewing if no confident card-shaped contour is found
+QUAD_APPROX_EPSILON_FRACTIONS = (0.01, 0.02, 0.03, 0.05, 0.08)  # tried in order until 4 points found
 
 
 class YoloDetectionService(DetectionService):
@@ -81,6 +89,92 @@ class YoloDetectionService(DetectionService):
         return largest
 
     @staticmethod
+    def _find_card_quadrilateral(contour: np.ndarray) -> np.ndarray | None:
+        """Reduces a contour to its 4 corner points via polygon
+        approximation, trying progressively coarser tolerances until exactly
+        4 points remain. Returns None if no tolerance in the search yields a
+        clean quadrilateral (rounded corners, noisy edges, occlusion).
+        """
+        perimeter = cv2.arcLength(contour, True)
+        for epsilon_fraction in QUAD_APPROX_EPSILON_FRACTIONS:
+            approx = cv2.approxPolyDP(contour, epsilon_fraction * perimeter, True)
+            if len(approx) == 4:
+                return approx.reshape(4, 2).astype(np.float32)
+        return None
+
+    @staticmethod
+    def _order_corners(points: np.ndarray) -> np.ndarray:
+        """Orders 4 points as [top-left, top-right, bottom-right, bottom-left].
+
+        Relies on the card not being rotated anywhere near 45 degrees within
+        the crop (true for our detector's axis-aligned box plus a modest
+        margin) — at extreme rotations this sum/difference heuristic can
+        mislabel which corner is "top-left".
+        """
+        ordered = np.zeros((4, 2), dtype=np.float32)
+
+        total = points.sum(axis=1)
+        ordered[0] = points[np.argmin(total)]  # top-left: smallest x+y
+        ordered[2] = points[np.argmax(total)]  # bottom-right: largest x+y
+
+        diff = np.diff(points, axis=1).flatten()  # y - x
+        ordered[1] = points[np.argmin(diff)]  # top-right: smallest y-x
+        ordered[3] = points[np.argmax(diff)]  # bottom-left: largest y-x
+
+        return ordered
+
+    @staticmethod
+    def _warp_to_flat_rectangle(image: PILImage, corners: np.ndarray) -> PILImage:
+        top_left, top_right, bottom_right, bottom_left = corners
+
+        width_top = np.hypot(*(top_right - top_left))
+        width_bottom = np.hypot(*(bottom_right - bottom_left))
+        target_width = max(int(width_top), int(width_bottom))
+
+        height_left = np.hypot(*(bottom_left - top_left))
+        height_right = np.hypot(*(bottom_right - top_right))
+        target_height = max(int(height_left), int(height_right))
+
+        destination = np.array(
+            [
+                [0, 0],
+                [target_width - 1, 0],
+                [target_width - 1, target_height - 1],
+                [0, target_height - 1],
+            ],
+            dtype=np.float32,
+        )
+
+        matrix = cv2.getPerspectiveTransform(corners, destination)
+        warped = cv2.warpPerspective(np.array(image), matrix, (target_width, target_height))
+        return Image.fromarray(warped)
+
+    def _deskew(self, padded_crop: PILImage) -> PILImage:
+        contour = self._find_largest_card_contour(padded_crop)
+        if contour is None:
+            return padded_crop  # no confident card-shaped edge found; leave as-is
+
+        quad = self._find_card_quadrilateral(contour)
+        if quad is not None:
+            ordered_corners = self._order_corners(quad)
+            return self._warp_to_flat_rectangle(padded_crop, ordered_corners)
+
+        return self._rotation_only_deskew(padded_crop, contour)
+
+    def _rotation_only_deskew(self, padded_crop: PILImage, contour: np.ndarray) -> PILImage:
+        """Fallback for when a clean 4-point quadrilateral couldn't be
+        resolved — corrects in-plane rotation only, not perspective.
+        """
+        angle = self._rotation_angle_degrees(contour)
+        rotated = padded_crop.rotate(angle, expand=True, fillcolor=(0, 0, 0), resample=Image.BICUBIC)
+
+        tight_contour = self._find_largest_card_contour(rotated)
+        if tight_contour is None:
+            return rotated
+        x, y, w, h = cv2.boundingRect(tight_contour)
+        return rotated.crop((x, y, x + w, y + h))
+
+    @staticmethod
     def _rotation_angle_degrees(contour: np.ndarray) -> float:
         """Minimal rotation (degrees) needed to make the contour's longest
         edge horizontal, normalized to (-45, 45] so we always rotate the
@@ -98,17 +192,3 @@ class YoloDetectionService(DetectionService):
         elif angle < -45:
             angle += 90
         return angle
-
-    def _deskew(self, padded_crop: PILImage) -> PILImage:
-        contour = self._find_largest_card_contour(padded_crop)
-        if contour is None:
-            return padded_crop  # no confident card-shaped edge found; leave as-is
-
-        angle = self._rotation_angle_degrees(contour)
-        rotated = padded_crop.rotate(angle, expand=True, fillcolor=(0, 0, 0), resample=Image.BICUBIC)
-
-        tight_contour = self._find_largest_card_contour(rotated)
-        if tight_contour is None:
-            return rotated
-        x, y, w, h = cv2.boundingRect(tight_contour)
-        return rotated.crop((x, y, x + w, y + h))
