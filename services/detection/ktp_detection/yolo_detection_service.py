@@ -124,6 +124,22 @@ class YoloDetectionService(DetectionService):
         return ordered
 
     @staticmethod
+    def _expand_corners_outward(corners: np.ndarray, margin_ratio: float = 0.02) -> np.ndarray:
+        """Pushes each corner slightly outward from the quad's centroid.
+
+        cv2.approxPolyDP (and the Canny+dilate edge detection feeding it)
+        tends to round off sharp corners slightly inward, which was cropping
+        a few real pixels off the card's edge — enough to clip the top
+        header row of text entirely on some cards. A small outward margin
+        trades a thin sliver of extra background for not losing real
+        content; the padded crop this operates on already has slack around
+        the card (CROP_MARGIN_RATIO) for this to land within.
+        """
+        centroid = corners.mean(axis=0)
+        expanded = centroid + (corners - centroid) * (1 + margin_ratio)
+        return expanded.astype(np.float32)
+
+    @staticmethod
     def _warp_to_flat_rectangle(image: PILImage, corners: np.ndarray) -> PILImage:
         top_left, top_right, bottom_right, bottom_left = corners
 
@@ -157,6 +173,7 @@ class YoloDetectionService(DetectionService):
         quad = self._find_card_quadrilateral(contour)
         if quad is not None:
             ordered_corners = self._order_corners(quad)
+            ordered_corners = self._expand_corners_outward(ordered_corners)
             return self._warp_to_flat_rectangle(padded_crop, ordered_corners)
 
         return self._rotation_only_deskew(padded_crop, contour)

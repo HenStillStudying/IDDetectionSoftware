@@ -67,9 +67,14 @@ def find_label_line(lines: list[TextLine], canonical_labels: list[str]) -> TextL
 def find_value_line(
     lines: list[TextLine], label_line: TextLine, card_size: tuple[int, int]
 ) -> TextLine | None:
-    """The value is the nearest line below the label, roughly left-aligned
-    with it. Thresholds scale with card size since the rectified crop's
-    resolution varies with the source photo.
+    """The value is the nearest line at or below the label, roughly
+    left-aligned with it. Thresholds scale with card size since the
+    rectified crop's resolution varies with the source photo.
+
+    "At or below" (not strictly below): OCR sometimes gives the label and
+    its value the same y1 when they're a short label next to a taller value
+    box, so requiring a strictly positive gap would incorrectly skip the
+    real value and match the next field's label instead.
     """
     width, height = card_size
     max_vertical_gap = height * MAX_VALUE_VERTICAL_GAP_RATIO
@@ -79,7 +84,7 @@ def find_value_line(
         line
         for line in lines
         if line is not label_line
-        and 0 < (line.y1 - label_line.y1) <= max_vertical_gap
+        and 0 <= (line.y1 - label_line.y1) <= max_vertical_gap
         and abs(line.x1 - label_line.x1) <= max_x_shift
     ]
     if not candidates:

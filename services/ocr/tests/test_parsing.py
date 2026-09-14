@@ -30,5 +30,13 @@ def test_find_berlaku_hingga_without_colon():
     assert match == ("SEUMUR HIDUP", 0.9)
 
 
+def test_find_berlaku_hingga_with_heavily_garbled_word():
+    # "Hingga" misread as "Hnga" (a dropped letter) inside an otherwise
+    # badly garbled line ("Berlaku" -> "Betau") — an exact substring check
+    # for "hingga" would miss this line entirely.
+    match = find_berlaku_hingga([_line("Betau Hnga: SEUMUR HIDUP")])
+    assert match == ("SEUMUR HIDUP", 0.9)
+
+
 def test_find_berlaku_hingga_absent():
     assert find_berlaku_hingga([_line("Agama"), _line("ISLAM")]) is None

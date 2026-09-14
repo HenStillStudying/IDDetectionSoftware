@@ -132,12 +132,19 @@ shadow-augmented ones.
   background shows through the tilted corners instead (also just makes the
   synthetic data more realistic). Dataset regenerated, detector retrained
   (mAP50 0.995, mAP50-95 0.983).
-  One regression surfaced during verification, not yet root-caused: on the
-  now much-tighter crop, `alamat` sometimes grabs the next field's label
-  text instead of its own value, and `provinsi`/`berlaku_hingga` sometimes
-  come back empty — likely the tighter crop shifting text-line positions
-  enough to affect the geometric label→value matching in
-  `services/ocr/ktp_ocr/field_labels.py`.
+  Verification against the tighter crop this produced then surfaced and
+  fixed three more real bugs: `find_value_line` required a strictly
+  positive vertical gap between a label and its value, which incorrectly
+  skipped a same-row value (OCR sometimes gives a short label and its
+  taller value box the same y1) and matched the *next* field's label
+  instead; `find_berlaku_hingga` required an exact `"hingga"` substring,
+  missing it when OCR mangled it further (e.g. "Hingga" → "Hnga"), now
+  fuzzy-matched per word; and the perspective warp was cropping a few
+  pixels too tight at the card's edges, clipping the top header row
+  (`provinsi`) entirely — fixed by expanding the detected quadrilateral
+  outward by a small margin before warping. All covered by regression
+  tests (`services/ocr/tests/test_field_labels.py`,
+  `test_parsing.py`).
 - **OCR latency is ~3-4s/request, CPU only** (down from ~12-14s). Two CPU-only
   optimizations got it there: skipping PaddleOCR's redundant doc-orientation/
   unwarping/textline-orientation stages (already deskewed upstream), and

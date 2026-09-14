@@ -116,20 +116,29 @@ def find_kota_kabupaten(lines: list[TextLine]) -> tuple[str, float] | None:
     return None
 
 
-_BERLAKU_PREFIX = re.compile(r"^.*?hingga\s*[:.]?\s*", re.IGNORECASE)
+_HINGGA_REFERENCE = "hingga"
+_HINGGA_MATCH_THRESHOLD = 0.5
 
 
 def find_berlaku_hingga(lines: list[TextLine]) -> tuple[str, float] | None:
-    """Strips everything through 'hingga' (plus an optional colon), rather
-    than requiring a literal colon — smaller OCR models sometimes drop it
-    (e.g. 'Benaku HIngga SEUMUR HIDUP' with no ':'), which previously left
-    the label text leaking into the value.
+    """Finds 'hingga' via fuzzy per-word matching, not an exact substring
+    check — OCR noise can mangle it badly enough to lose a letter (e.g.
+    'Hingga' -> 'Hnga', or the whole line to 'Betau Hnga: SEUMUR HIDUP'),
+    which an exact 'in line.text' check would silently miss entirely rather
+    than just misplacing the value.
     """
     for line in lines:
-        if "hingga" in line.text.lower():
-            value = _BERLAKU_PREFIX.sub("", line.text, count=1).strip()
-            if value:
-                return value, line.confidence
+        words = line.text.split()
+        for i, word in enumerate(words):
+            normalized_word = re.sub(r"[^a-z]", "", word.lower())
+            if not normalized_word:
+                continue
+            score = difflib.SequenceMatcher(None, normalized_word, _HINGGA_REFERENCE).ratio()
+            if score >= _HINGGA_MATCH_THRESHOLD:
+                value = " ".join(words[i + 1 :]).lstrip(" :.").strip()
+                if value:
+                    return value, line.confidence
+                break  # matched word but nothing follows it on this line
     return None
 
 
