@@ -12,7 +12,7 @@ libs/ktp_interfaces/  DetectionService/OcrService contracts (implemented by serv
 services/api/         FastAPI gateway: /v1/ktp/extract (sync) and /v1/ktp/jobs (async)
 services/detection/   YOLOv8 card detection + contour-based deskew (YoloDetectionService), in-process
 services/ocr/         Standalone PaddleOCR microservice — its own FastAPI app, its own process
-training/              Synthetic KTP dataset generator + YOLO training script
+training/              Synthetic KTP dataset generator, YOLO training script, and a ground-truth pipeline evaluator
 infra/                 Dockerfiles, deployment configs
 ```
 
@@ -72,6 +72,26 @@ python -m pytest libs/tests services/api/tests services/ocr/tests
 All three suites run against stubs/fakes — none load a real model, so the
 full suite runs in under a second.
 
+## Evaluate real pipeline accuracy (not eyeballed)
+
+Unit tests check logic; this measures the actual detector+OCR pipeline
+against known-correct field values, since a rendered card's true field
+values normally aren't recoverable after the fact (the dataset generator
+only keeps images + bbox labels for detection training, not per-field
+ground truth):
+
+```bash
+cd training
+python generate_eval_set.py --count 30 --output ./eval_set   # renders cards + saves the true field values alongside each image
+python evaluate_pipeline.py --eval-dir ./eval_set --weights ./runs/ktp_detector/weights/best.pt
+```
+
+Runs the same `KtpExtractionPipeline` `services/api` uses (not a
+reimplementation), compares every extracted field to ground truth, and
+reports per-field accuracy plus a full per-image JSON report. This is what
+actually caught the three bugs listed below — worth re-running after any
+change to detection or OCR, not just once.
+
 ## API
 
 **Main API** (`services/api`):
@@ -105,10 +125,34 @@ End-to-end pipeline works, verified through the real separated services (not
 just in-process function calls): YOLOv8n detector (trained on synthetic
 data, mAP50 0.995 — validates the plumbing, not real-world accuracy) →
 contour-based deskew → HTTP call to the OCR service → PaddleOCR
-label-matching field extraction. 17/17 fields correct on a clean/lightly
--rotated test card; graceful degradation (fields return `None`/0-confidence
-rather than silently wrong values) on heavily perspective-warped,
-shadow-augmented ones.
+label-matching field extraction.
+
+**Measured, not eyeballed**: `evaluate_pipeline.py` against 30
+ground-truth-labeled synthetic cards (see "Evaluate real pipeline accuracy"
+above) — card detected on 30/30. Per-field accuracy (exact match after
+normalizing case/whitespace, so this is a strict floor, not credit for
+"close enough"):
+
+| Field | Acc. | Field | Acc. | Field | Acc. |
+|---|---|---|---|---|---|
+| nik | **100%** | jenis_kelamin | 100% | status_perkawinan | 100% |
+| pekerjaan | 100% | agama | 97% | provinsi | 97% |
+| kewarganegaraan | 90% | tanggal_lahir | 90% | kecamatan | 90% |
+| nama | 73% | tempat_lahir | 73% | golongan_darah | 73% |
+| kota_kabupaten | 73% | kelurahan_desa | 67% | berlaku_hingga | 70% |
+| rt_rw | 60% | alamat | 53% | | |
+
+NIK — the field that actually matters most — is perfect across all 30.
+The weaker fields (`alamat`, `rt_rw`, `berlaku_hingga`) are, on inspection
+of every failure, now single-character OCR noise (`0`/`Q`/`D` digit
+confusion, dropped letters) rather than logic bugs — a direct, accepted
+consequence of choosing the faster `PP-OCRv6_small` model tier. Building
+this evaluator immediately paid for itself: it caught three real bugs a
+handful of eyeballed test images had missed — a `find_value_line` geometry
+off-by-one, a `find_berlaku_hingga` false-positive on short unrelated
+words ("GG" and "TENGAH" both scored high enough against "hingga"), and a
+`split_rt_rw_kelurahan` regex that broke when OCR dropped a separator —
+each fixed and each covered by a regression test.
 
 **Known gaps to address before any real-world use:**
 - Trained purely on synthetic data — hasn't seen a real photo yet. Needs

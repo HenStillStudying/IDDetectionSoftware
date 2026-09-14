@@ -16,6 +16,7 @@ from ktp_interfaces import OcrService
 from ktp_schema import FieldValue, Gender, JOBS, KtpFields, MARITAL_STATUSES, RELIGIONS
 
 GENDERS = [Gender.MALE.value, Gender.FEMALE.value]
+CITIZENSHIPS = ["WNI", "WNA"]  # not in ktp_schema.reference_data — only 2 values, fixed by the KTP form itself
 
 from .field_labels import ROW_LABELS, find_label_line, find_value_line
 from .parsing import (
@@ -136,7 +137,9 @@ class PaddleOcrService(OcrService):
             pekerjaan=_field(
                 snap_to_enum(pekerjaan_raw, JOBS) if pekerjaan_raw else None, pekerjaan_conf
             ),
-            kewarganegaraan=_field(wn_raw, wn_conf),
+            kewarganegaraan=_field(
+                snap_to_enum(wn_raw, CITIZENSHIPS) if wn_raw else None, wn_conf
+            ),
             berlaku_hingga=_field_from_match(find_berlaku_hingga(lines)),
             provinsi=_field_from_match(find_provinsi(lines)),
             kota_kabupaten=_field_from_match(find_kota_kabupaten(lines)),

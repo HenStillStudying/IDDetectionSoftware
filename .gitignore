@@ -5,6 +5,8 @@ __pycache__/
 venv/
 .pytest_cache/
 dataset/
+eval_set/
+eval_report*.json
 *.log
 .env
 

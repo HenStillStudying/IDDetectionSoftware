@@ -55,8 +55,14 @@ def split_jenis_kelamin_gol_darah(value: str) -> tuple[str | None, str | None]:
 
 
 def split_rt_rw_kelurahan(value: str) -> tuple[str | None, str | None]:
-    """'010/001   Kel/Desa: SAMARINDA' -> ('010/001', 'SAMARINDA')."""
-    kel_match = re.search(r"\bkel\b", value, re.IGNORECASE)
+    """'010/001   Kel/Desa: SAMARINDA' -> ('010/001', 'SAMARINDA').
+
+    Matches "kel" as a prefix, not a whole word (\\bkel, not \\bkel\\b): OCR
+    sometimes drops the "/" in "Kel/Desa" entirely (e.g. "KELDESA"), which
+    leaves no word boundary after "kel" for a whole-word match to find,
+    silently returning the whole unsplit string instead.
+    """
+    kel_match = re.search(r"\bkel", value, re.IGNORECASE)
     if not kel_match:
         return (value.strip(" .:") or None, None)
 
@@ -118,6 +124,7 @@ def find_kota_kabupaten(lines: list[TextLine]) -> tuple[str, float] | None:
 
 _HINGGA_REFERENCE = "hingga"
 _HINGGA_MATCH_THRESHOLD = 0.5
+_HINGGA_MIN_WORD_LENGTH = 4  # see note below on why this floor matters
 
 
 def find_berlaku_hingga(lines: list[TextLine]) -> tuple[str, float] | None:
@@ -126,20 +133,41 @@ def find_berlaku_hingga(lines: list[TextLine]) -> tuple[str, float] | None:
     'Hingga' -> 'Hnga', or the whole line to 'Betau Hnga: SEUMUR HIDUP'),
     which an exact 'in line.text' check would silently miss entirely rather
     than just misplacing the value.
+
+    Picks the single BEST-scoring word across every line, not the first one
+    that merely clears the threshold: OCR line order isn't top-to-bottom
+    (same reason field_labels.find_value_line uses geometry, not list
+    order), so a coincidental match on an earlier, unrelated line — e.g.
+    "TENGAH" (as in "JAWA TENGAH") scores 0.5 against "hingga" — could
+    otherwise get returned before the real "Hingga" match later in the list
+    is even considered.
+
+    Short words are excluded before scoring: difflib's ratio is 2*matches /
+    (len(a)+len(b)), so on a short word even a coincidental couple of shared
+    letters clears a 0.5 threshold against a 6-letter reference — "GG" (as
+    in the street prefix "GG. MAWAR") also matches at exactly 0.5. Real OCR
+    variants of "Hingga" seen in practice are still >= 4 characters even
+    when mangled.
     """
+    best_score = 0.0
+    best_line: TextLine | None = None
+    best_word_index = -1
+
     for line in lines:
         words = line.text.split()
         for i, word in enumerate(words):
             normalized_word = re.sub(r"[^a-z]", "", word.lower())
-            if not normalized_word:
+            if len(normalized_word) < _HINGGA_MIN_WORD_LENGTH:
                 continue
             score = difflib.SequenceMatcher(None, normalized_word, _HINGGA_REFERENCE).ratio()
-            if score >= _HINGGA_MATCH_THRESHOLD:
-                value = " ".join(words[i + 1 :]).lstrip(" :.").strip()
-                if value:
-                    return value, line.confidence
-                break  # matched word but nothing follows it on this line
-    return None
+            if score > best_score:
+                best_score, best_line, best_word_index = score, line, i
+
+    if best_line is None or best_score < _HINGGA_MATCH_THRESHOLD:
+        return None
+
+    value = " ".join(best_line.text.split()[best_word_index + 1 :]).lstrip(" :.").strip()
+    return (value, best_line.confidence) if value else None
 
 
 def find_provinsi(lines: list[TextLine]) -> tuple[str, float] | None:

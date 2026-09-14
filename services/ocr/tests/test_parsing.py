@@ -1,4 +1,4 @@
-from ktp_ocr.parsing import find_berlaku_hingga, split_tempat_tanggal_lahir
+from ktp_ocr.parsing import find_berlaku_hingga, split_rt_rw_kelurahan, split_tempat_tanggal_lahir
 from ktp_ocr.text_lines import TextLine
 
 
@@ -40,3 +40,32 @@ def test_find_berlaku_hingga_with_heavily_garbled_word():
 
 def test_find_berlaku_hingga_absent():
     assert find_berlaku_hingga([_line("Agama"), _line("ISLAM")]) is None
+
+
+def test_find_berlaku_hingga_does_not_false_match_short_words():
+    # "GG" (as in the street prefix "GG. MAWAR") scored exactly 0.5 against
+    # "hingga" under difflib's ratio before a minimum-word-length guard was
+    # added — grabbing an unrelated alamat line as the berlaku_hingga value.
+    assert find_berlaku_hingga([_line("GG. MAWAR NO.26 RT 008/RW 003")]) is None
+
+
+def test_find_berlaku_hingga_prefers_best_match_over_first_sufficient_one():
+    # "TENGAH" (as in "JAWA TENGAH") also scores 0.5 against "hingga" and
+    # can appear earlier in OCR's (not top-to-bottom) line order than the
+    # real "Hingga" match — picking the first sufficient match instead of
+    # the best one returned the province line's tail as the value.
+    lines = [
+        _line("JAWA TENGAH"),
+        _line("Berlaku Hingga: SEUMUR HIDUP"),
+    ]
+    assert find_berlaku_hingga(lines) == ("SEUMUR HIDUP", 0.9)
+
+
+def test_split_rt_rw_kelurahan_with_separator():
+    assert split_rt_rw_kelurahan("010/001   Kel/Desa: SAMARINDA") == ("010/001", "SAMARINDA")
+
+
+def test_split_rt_rw_kelurahan_when_ocr_drops_the_slash():
+    # OCR sometimes reads "Kel/Desa" as "KELDESA" with no separator at all,
+    # leaving no word boundary after "kel" for a \bkel\b match to find.
+    assert split_rt_rw_kelurahan("007/005 KELDESA: CIMAHI") == ("007/005", "CIMAHI")

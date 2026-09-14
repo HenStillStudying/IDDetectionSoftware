@@ -92,8 +92,15 @@ def truncate(text: str, max_chars: int) -> str:
 
 # ─── KTP Renderer ─────────────────────────────────────────────────────────────
 
-def render_ktp() -> Image.Image:
-    """Renders a single fake KTP card as a PIL Image."""
+def render_ktp() -> tuple[Image.Image, dict[str, str]]:
+    """Renders a single fake KTP card as a PIL Image.
+
+    Returns (image, ground_truth) where ground_truth maps ktp_schema
+    KtpFields field names to the exact text printed on the card (post
+    truncation, matching what OCR could actually read) — used by
+    evaluate_pipeline.py to measure real extraction accuracy instead of
+    eyeballing rendered images one at a time.
+    """
     province = random.choice(PROVINCES)
     city     = fake.city().upper()
     nik      = fake_nik()
@@ -176,7 +183,26 @@ def render_ktp() -> Image.Image:
               font=fsig, fill=(80, 80, 80))
     draw.rectangle([(0, KTP_H - 6), (KTP_W, KTP_H)], fill=(30, 60, 140))
 
-    return img
+    ground_truth = {
+        "nik": nik,
+        "nama": name,
+        "tempat_lahir": truncate(pob, 16),
+        "tanggal_lahir": dob,
+        "jenis_kelamin": gender,
+        "golongan_darah": blood,
+        "alamat": address,
+        "rt_rw": rt_rw,
+        "kelurahan_desa": kel,
+        "kecamatan": kec,
+        "agama": religion,
+        "status_perkawinan": marital,
+        "pekerjaan": job,
+        "kewarganegaraan": "WNI",
+        "berlaku_hingga": "SEUMUR HIDUP",
+        "provinsi": province,
+        "kota_kabupaten": truncate(city, 24),
+    }
+    return img, ground_truth
 
 
 # ─── Scene Composer ───────────────────────────────────────────────────────────
@@ -255,7 +281,7 @@ def generate_dataset(count: int, output_dir: str, aug_factor: int = 2):
 
     print(f"Generating {count} base KTP scenes...")
     for i in range(count):
-        ktp   = render_ktp()
+        ktp, _ground_truth = render_ktp()  # ground truth unused here — this dataset is for detection training only
         scene, bbox = compose_scene(ktp)
         x1, y1, x2, y2 = bbox
 
