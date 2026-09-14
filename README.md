@@ -82,8 +82,18 @@ wrong values) on heavily perspective-warped, shadow-augmented ones.
   real (or far more realistic) KTP images before it's trustworthy.
 - Detection only corrects in-plane rotation, not true perspective distortion
   (a steeply-angled photo needs a 4-corner keypoint model).
-- OCR latency is currently ~15s/request on CPU with MKL-DNN disabled — the
-  disable was a workaround for a PaddlePaddle/oneDNN crash on this dev
-  machine (`services/ocr/ktp_ocr/paddle_ocr_service.py`); needs a
-  GPU-enabled paddlepaddle build and/or that root cause fixed before this is
-  production-viable latency for the sync endpoint.
+- OCR latency is ~12s/request on CPU with MKL-DNN disabled (down from ~15s
+  after skipping the doc-orientation/unwarping/textline-orientation stages,
+  which are redundant since we deskew upstream — see
+  `services/ocr/ktp_ocr/paddle_ocr_service.py`). MKL-DNN is disabled as a
+  workaround for a PaddlePaddle/oneDNN crash on this dev machine. GPU was
+  tried (`paddlepaddle-gpu`) and does work in isolation, but crashes with
+  Windows DLL conflicts when PaddlePaddle and PyTorch (used by
+  `ktp_detection`) are loaded in the same process — a real blocker for the
+  current in-process wiring in `services/api/app/main.py`, not something to
+  paper over. Reverted to CPU for reliability. Next real levers: an older
+  pre-3.x paddlepaddle that might restore working MKL-DNN, lighter
+  "mobile" det/rec models, or actually splitting detection and OCR into
+  separate processes (which the package structure already supports) so GPU
+  PaddleOCR isn't sharing a process with GPU PyTorch. Not production-viable
+  latency yet either way.

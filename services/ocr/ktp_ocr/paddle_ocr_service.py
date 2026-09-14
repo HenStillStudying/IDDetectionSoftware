@@ -59,10 +59,20 @@ class PaddleOcrService(OcrService):
     def __init__(self, lang: str = "en"):
         from paddleocr import PaddleOCR
 
+        # Skip doc-orientation/unwarping/textline-orientation: YoloDetectionService
+        # already deskews the card upstream, so these three extra model
+        # stages would be redundant work on every request.
+        #
         # enable_mkldnn=False works around a PaddlePaddle/oneDNN crash seen
         # on this stack (NotImplementedError in onednn_instruction.cc);
         # revisit if a paddlepaddle upgrade fixes the underlying bug.
-        self._engine = PaddleOCR(use_textline_orientation=True, lang=lang, enable_mkldnn=False)
+        self._engine = PaddleOCR(
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            lang=lang,
+            enable_mkldnn=False,
+        )
 
     def extract_fields(self, rectified_card: PILImage) -> KtpFields:
         lines = run_ocr(self._engine, rectified_card)
