@@ -15,7 +15,7 @@ class Settings:
     max_upload_bytes: int = int(os.getenv("KTP_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
     api_key: str | None = os.getenv("KTP_API_KEY")  # None disables auth (dev only)
     detection_weights_path: str | None = os.getenv("KTP_DETECTION_WEIGHTS")
-    ocr_enabled: bool = os.getenv("KTP_OCR_ENABLED", "false").lower() == "true"
+    ocr_service_url: str | None = os.getenv("KTP_OCR_SERVICE_URL")
 
 
 settings = Settings()

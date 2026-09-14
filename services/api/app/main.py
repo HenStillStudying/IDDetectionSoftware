@@ -12,6 +12,7 @@ from ktp_schema import ExtractionStatus
 from .config import settings
 from .jobs import JobStatus, JobStore
 from .pipeline import KtpExtractionPipeline
+from .remote_ocr_service import RemoteOcrService
 from .stub_models import StubDetectionService, StubOcrService
 
 logger = logging.getLogger(__name__)
@@ -41,17 +42,20 @@ def _build_detection_service() -> DetectionService:
 
 
 def _build_ocr_service() -> OcrService:
-    """Uses PaddleOCR when KTP_OCR_ENABLED=true; falls back to the stub
-    otherwise, so the service still boots without the (heavy) OCR
-    dependency installed.
+    """Calls the separately-deployed OCR microservice (services/ocr) over
+    HTTP when KTP_OCR_SERVICE_URL is set; falls back to the stub otherwise,
+    so the service still boots without that dependency running.
+
+    OCR runs as its own service (not imported in-process here) because
+    PaddleOCR's GPU build crashes with Windows DLL conflicts when loaded
+    alongside PyTorch (used by the detection service below) — see
+    services/ocr's README for the full story.
     """
-    if settings.ocr_enabled:
-        from ktp_ocr import PaddleOcrService
+    if settings.ocr_service_url:
+        logger.info("Using remote OCR service at %s", settings.ocr_service_url)
+        return RemoteOcrService(settings.ocr_service_url)
 
-        logger.info("Loading PaddleOCR OCR service")
-        return PaddleOcrService()
-
-    logger.warning("KTP_OCR_ENABLED not set — using stub OCR service")
+    logger.warning("KTP_OCR_SERVICE_URL not set — using stub OCR service")
     return StubOcrService()
 
 

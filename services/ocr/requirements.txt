@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pillow>=10.0
+
+# ktp-ocr (this directory's own package, and the ktp-shared it depends on)
+# is installed separately — see README: `pip install -e libs && pip install -e services/ocr`
