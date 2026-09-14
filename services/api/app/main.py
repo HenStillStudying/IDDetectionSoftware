@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+import os
+
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from ktp_interfaces import DetectionService
 from ktp_schema import ExtractionStatus
 
 from .config import settings
@@ -10,16 +14,35 @@ from .jobs import JobStatus, JobStore
 from .pipeline import KtpExtractionPipeline
 from .stub_models import StubDetectionService, StubOcrService
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="KTP Identification API",
     version="0.1.0",
     description="Detects an Indonesian KTP card in a photo and extracts its fields via OCR.",
 )
 
-# Wired to stubs for now — swap for real model-serving clients in
-# services/detection and services/ocr once trained.
+
+def _build_detection_service() -> DetectionService:
+    """Uses the trained YOLO detector when KTP_DETECTION_WEIGHTS points at a
+    real weights file; falls back to the stub (0 confidence, whole image as
+    the card) otherwise, so the service still boots in dev/CI without a
+    trained model.
+    """
+    weights_path = settings.detection_weights_path
+    if weights_path and os.path.exists(weights_path):
+        from ktp_detection import YoloDetectionService
+
+        logger.info("Loading YOLO detection model from %s", weights_path)
+        return YoloDetectionService(weights_path)
+
+    logger.warning("KTP_DETECTION_WEIGHTS not set or missing — using stub detection service")
+    return StubDetectionService()
+
+
+# OCR is still a stub — services/ocr hasn't been built yet.
 pipeline = KtpExtractionPipeline(
-    detection_service=StubDetectionService(),
+    detection_service=_build_detection_service(),
     ocr_service=StubOcrService(),
 )
 job_store = JobStore()

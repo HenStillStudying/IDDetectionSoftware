@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from PIL.Image import Image as PILImage
 
+from ktp_interfaces import DetectionService, OcrService
 from ktp_schema import BoundingBox, FieldValue, KtpFields
-
-from .interfaces import DetectionService, OcrService
 
 
 class StubDetectionService(DetectionService):

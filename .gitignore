@@ -7,3 +7,9 @@ venv/
 dataset/
 *.log
 .env
+
+# trained model weights + run artifacts — belong in a model registry/artifact
+# store, not git
+runs/
+*.pt
+*.onnx

@@ -18,8 +18,7 @@ from ktp_schema import (
     validate_nik,
 )
 from ktp_schema.result import NikValidation
-
-from .interfaces import DetectionService, OcrService
+from ktp_interfaces import DetectionService, OcrService
 
 LOW_CONFIDENCE_THRESHOLD = 0.6
 

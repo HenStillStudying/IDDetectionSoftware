@@ -19,8 +19,34 @@ import numpy as np
 
 fake = Faker("id_ID")
 
-FONT_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+def _find_font(candidates: list[str], fallback_name: str) -> str:
+    """Returns the first existing font path, or a matplotlib-bundled fallback.
+
+    Font locations differ across Linux containers, Windows dev machines, and
+    CI images, so we probe common paths rather than hardcoding one.
+    """
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    import matplotlib.font_manager as fm
+    return fm.findfont(fallback_name, fontext="ttf")
+
+
+FONT_REG = _find_font(
+    [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ],
+    "DejaVu Sans",
+)
+FONT_BOLD = _find_font(
+    [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+    ],
+    "DejaVu Sans:bold",
+)
 
 KTP_W, KTP_H = 640, 404   # card canvas size
 IMG_W, IMG_H = 960, 720   # full scene size (card placed on background)
@@ -211,7 +237,7 @@ augment = A.Compose([
     A.RandomShadow(p=0.3),
     A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=0.4),
     A.Perspective(scale=(0.02, 0.06), p=0.5),
-    A.ImageCompression(quality_lower=60, quality_upper=95, p=0.4),
+    A.ImageCompression(quality_range=(60, 95), p=0.4),
 ], bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"],
                              clip=True, min_visibility=0.3))
 
