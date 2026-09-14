@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ktp-ocr"
+version = "0.1.0"
+description = "PaddleOCR-based KTP field extraction, implementing the shared OcrService contract"
+requires-python = ">=3.11"
+dependencies = [
+    "ktp-shared",
+    "paddleocr>=3.0",
+    "paddlepaddle>=3.0",
+    "pillow>=10.0",
+    "numpy>=1.26",
+]
+
+[tool.setuptools]
+packages = ["ktp_ocr"]

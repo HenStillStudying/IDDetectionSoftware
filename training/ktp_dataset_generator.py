@@ -15,6 +15,9 @@ from faker import Faker
 import albumentations as A
 import numpy as np
 
+from ktp_schema import BLOODS, JOBS, PROVINCES, RELIGIONS
+from ktp_schema import MARITAL_STATUSES as MARITAL
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 fake = Faker("id_ID")
@@ -51,18 +54,6 @@ FONT_BOLD = _find_font(
 KTP_W, KTP_H = 640, 404   # card canvas size
 IMG_W, IMG_H = 960, 720   # full scene size (card placed on background)
 
-PROVINCES = [
-    "JAWA BARAT", "JAWA TENGAH", "JAWA TIMUR", "DKI JAKARTA",
-    "BANTEN", "SUMATERA UTARA", "SULAWESI SELATAN", "KALIMANTAN TIMUR",
-    "SUMATERA SELATAN", "RIAU", "ACEH", "BALI",
-]
-RELIGIONS = ["ISLAM", "KRISTEN", "KATOLIK", "HINDU", "BUDHA"]
-JOBS      = [
-    "KARYAWAN SWASTA", "WIRASWASTA", "PELAJAR/MAHASISWA",
-    "PETANI", "PNS", "BELUM/TIDAK BEKERJA", "DOKTER", "GURU",
-]
-BLOODS  = ["A", "B", "AB", "O"]
-MARITAL = ["BELUM KAWIN", "KAWIN", "CERAI HIDUP", "CERAI MATI"]
 STREETS = [
     "JL. MERDEKA", "JL. SUDIRMAN", "JL. GATOT SUBROTO",
     "JL. DIPONEGORO", "GG. MAWAR", "KOMP. GRIYA INDAH",

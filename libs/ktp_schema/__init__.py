@@ -1,6 +1,7 @@
 from .fields import Gender, MaritalStatus, KtpFields, FieldValue
 from .nik import validate_nik, NikInfo, parse_nik
 from .result import BoundingBox, KtpExtractionResult, ExtractionStatus
+from .reference_data import BLOODS, JOBS, MARITAL_STATUSES, PROVINCES, RELIGIONS
 
 __all__ = [
     "Gender",
@@ -13,4 +14,9 @@ __all__ = [
     "BoundingBox",
     "KtpExtractionResult",
     "ExtractionStatus",
+    "PROVINCES",
+    "RELIGIONS",
+    "JOBS",
+    "BLOODS",
+    "MARITAL_STATUSES",
 ]

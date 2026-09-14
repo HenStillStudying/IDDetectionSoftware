@@ -6,7 +6,7 @@ import os
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from ktp_interfaces import DetectionService
+from ktp_interfaces import DetectionService, OcrService
 from ktp_schema import ExtractionStatus
 
 from .config import settings
@@ -40,10 +40,24 @@ def _build_detection_service() -> DetectionService:
     return StubDetectionService()
 
 
-# OCR is still a stub — services/ocr hasn't been built yet.
+def _build_ocr_service() -> OcrService:
+    """Uses PaddleOCR when KTP_OCR_ENABLED=true; falls back to the stub
+    otherwise, so the service still boots without the (heavy) OCR
+    dependency installed.
+    """
+    if settings.ocr_enabled:
+        from ktp_ocr import PaddleOcrService
+
+        logger.info("Loading PaddleOCR OCR service")
+        return PaddleOcrService()
+
+    logger.warning("KTP_OCR_ENABLED not set — using stub OCR service")
+    return StubOcrService()
+
+
 pipeline = KtpExtractionPipeline(
     detection_service=_build_detection_service(),
-    ocr_service=StubOcrService(),
+    ocr_service=_build_ocr_service(),
 )
 job_store = JobStore()
 
