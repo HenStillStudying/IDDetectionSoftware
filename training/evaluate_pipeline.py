@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import sys
 from pathlib import Path
@@ -53,6 +54,8 @@ def main() -> None:
 
     correct_counts = {f: 0 for f in FIELD_NAMES}
     total_counts = {f: 0 for f in FIELD_NAMES}
+    similarity_sums = {f: 0.0 for f in FIELD_NAMES}  # character-level, for failures: how close, not just right/wrong
+    missing_counts = {f: 0 for f in FIELD_NAMES}  # extracted was None — a safe failure, not a wrong value
     status_counts: dict[str, int] = {}
     per_image_results = []
 
@@ -77,6 +80,11 @@ def main() -> None:
                 is_correct = extracted == gt_value
                 if is_correct:
                     correct_counts[field] += 1
+                    similarity_sums[field] += 1.0
+                elif extracted is None:
+                    missing_counts[field] += 1
+                else:
+                    similarity_sums[field] += difflib.SequenceMatcher(None, extracted, gt_value).ratio()
                 image_result["fields"][field] = {
                     "ground_truth": gt_value,
                     "extracted": extracted,
@@ -86,14 +94,25 @@ def main() -> None:
         per_image_results.append(image_result)
         print(f"  {i + 1}/{len(image_paths)}: {img_path.name} -> {result.status.value}")
 
-    print(f"\n{'Field':20s} {'Accuracy':>10s}   (n)")
-    print("-" * 45)
+    print(f"\n{'Field':20s} {'Exact':>8s} {'Char sim':>10s} {'Missing':>9s}   (n)")
+    print("-" * 62)
     for field in FIELD_NAMES:
         n = total_counts[field]
         if n == 0:
             continue
         accuracy = correct_counts[field] / n
-        print(f"{field:20s} {accuracy:9.1%}   ({n})")
+        avg_similarity = similarity_sums[field] / n
+        missing_rate = missing_counts[field] / n
+        print(
+            f"{field:20s} {accuracy:7.1%} {avg_similarity:9.1%} {missing_rate:8.1%}   ({n})"
+        )
+    print(
+        "\n'Char sim' = average character-level similarity across all samples for this "
+        "field (exact matches count as 1.0; a near-miss like one wrong digit still "
+        "scores high, a genuinely different value scores low). Contrast with 'Exact' "
+        "to tell single-character OCR noise apart from an actually wrong value. "
+        "'Missing' = extracted was None — a safe failure, not a silently wrong value."
+    )
 
     print(f"\nStatus breakdown: {status_counts}")
 
