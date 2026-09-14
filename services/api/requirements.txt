@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pillow>=10.0
+pydantic>=2.0
+
+# ktp-schema (the shared contracts package in ../../libs) is installed
+# separately — see README: `pip install -e libs` from the repo root.
