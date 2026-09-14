@@ -22,12 +22,23 @@ def only_digits(text: str) -> str:
     return re.sub(r"\D", "", text)
 
 
+_TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}-\d{1,2}-\d{4})")
+
+
 def split_tempat_tanggal_lahir(value: str) -> tuple[str | None, str | None]:
-    """'KUPANG, 09-01-1989' -> ('KUPANG', '09-01-1989')."""
-    parts = value.split(",", 1)
-    if len(parts) != 2:
+    """'KUPANG, 09-01-1989' -> ('KUPANG', '09-01-1989').
+
+    Splits on a comma OR period immediately before the date, since smaller
+    OCR models sometimes misread the comma as a period — anchoring on the
+    date pattern (rather than just the first comma) means that misread
+    still splits correctly instead of silently merging both fields.
+    """
+    match = _TTL_SEPARATOR.search(value)
+    if not match:
         return (value.strip() or None, None)
-    return (parts[0].strip() or None, parts[1].strip() or None)
+    place = value[: match.start()].strip()
+    date = value[match.end() :].strip()
+    return (place or None, date or None)
 
 
 def split_jenis_kelamin_gol_darah(value: str) -> tuple[str | None, str | None]:
@@ -105,11 +116,18 @@ def find_kota_kabupaten(lines: list[TextLine]) -> tuple[str, float] | None:
     return None
 
 
+_BERLAKU_PREFIX = re.compile(r"^.*?hingga\s*[:.]?\s*", re.IGNORECASE)
+
+
 def find_berlaku_hingga(lines: list[TextLine]) -> tuple[str, float] | None:
+    """Strips everything through 'hingga' (plus an optional colon), rather
+    than requiring a literal colon — smaller OCR models sometimes drop it
+    (e.g. 'Benaku HIngga SEUMUR HIDUP' with no ':'), which previously left
+    the label text leaking into the value.
+    """
     for line in lines:
         if "hingga" in line.text.lower():
-            parts = line.text.split(":", 1)
-            value = parts[1].strip() if len(parts) == 2 else line.text.strip()
+            value = _BERLAKU_PREFIX.sub("", line.text, count=1).strip()
             if value:
                 return value, line.confidence
     return None

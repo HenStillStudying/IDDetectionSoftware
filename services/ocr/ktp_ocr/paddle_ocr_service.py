@@ -55,8 +55,24 @@ def _field_from_match(match: tuple[str, float] | None) -> FieldValue:
     return FieldValue(value=value, confidence=confidence)
 
 
+# PP-OCRv6_small_* over the default PP-OCRv6_medium_*: ~4-5x faster
+# (~12s -> ~3s/request) with NIK recognition holding up correctly even on
+# heavily degraded test images. PP-OCRv6_tiny_* was faster still but
+# dropped NIK entirely on the hardest test case and started merging
+# adjacent text lines into single detection boxes (undermining the
+# position-based field matching this service relies on) — not an
+# acceptable tradeoff for an ID-verification field.
+DEFAULT_TEXT_DETECTION_MODEL = "PP-OCRv6_small_det"
+DEFAULT_TEXT_RECOGNITION_MODEL = "PP-OCRv6_small_rec"
+
+
 class PaddleOcrService(OcrService):
-    def __init__(self, lang: str = "en"):
+    def __init__(
+        self,
+        lang: str = "en",
+        text_detection_model_name: str = DEFAULT_TEXT_DETECTION_MODEL,
+        text_recognition_model_name: str = DEFAULT_TEXT_RECOGNITION_MODEL,
+    ):
         from paddleocr import PaddleOCR
 
         # Skip doc-orientation/unwarping/textline-orientation: YoloDetectionService
@@ -71,6 +87,8 @@ class PaddleOcrService(OcrService):
             use_doc_unwarping=False,
             use_textline_orientation=False,
             lang=lang,
+            text_detection_model_name=text_detection_model_name,
+            text_recognition_model_name=text_recognition_model_name,
             enable_mkldnn=False,
         )
 

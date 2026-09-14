@@ -115,20 +115,29 @@ shadow-augmented ones.
   real (or far more realistic) KTP images before it's trustworthy.
 - Detection only corrects in-plane rotation, not true perspective distortion
   (a steeply-angled photo needs a 4-corner keypoint model).
-- **OCR latency is ~14s/request over HTTP, CPU only.** Skipping PaddleOCR's
-  redundant doc-orientation/unwarping/textline-orientation stages (already
-  deskewed upstream) cut it from ~15s to ~12s in-process; going through the
-  OCR service's HTTP layer adds a bit more. GPU (`paddlepaddle-gpu`) was
-  tried twice: once diagnosed as a same-process DLL collision with PyTorch
-  (which motivated the service split above), then retried standalone in the
-  now-isolated OCR service — and it *still* failed the same way
-  (`WinError 127` loading `cudnn_engines_precompiled64_9.dll`), even with no
-  PyTorch anywhere in that process. The real cause turned out to be the
-  `zlibwapi.dll` NVIDIA's own docs point to for cuDNN-on-Windows: a decade-old
-  zlib 1.2.3 build that's likely missing exports modern cuDNN 9.5 expects.
-  Reverted to CPU for reliability rather than ship something that fails
-  non-deterministically. Next real levers: a newer/correct `zlibwapi.dll`
-  build, an older pre-3.x paddlepaddle that might restore working MKL-DNN on
-  CPU, or lighter "mobile" det/rec models. Not production-viable latency yet
-  either way — route through `/v1/ktp/jobs` (async), not the sync endpoint,
-  for anything beyond manual testing.
+- **OCR latency is ~3-4s/request, CPU only** (down from ~12-14s). Two CPU-only
+  optimizations got it there: skipping PaddleOCR's redundant doc-orientation/
+  unwarping/textline-orientation stages (already deskewed upstream), and
+  switching from `PP-OCRv6_medium_*` to `PP-OCRv6_small_*` models — chosen
+  over the even-faster `tiny` tier because `tiny` dropped NIK entirely on a
+  hard test image and started merging adjacent text lines into single
+  detection boxes, undermining the position-based field matching this
+  service relies on (`small` kept NIK correct across every test image tried).
+  Switching tiers surfaced two real parsing regressions (a misread comma
+  breaking the tempat/tanggal-lahir split, a missing colon leaking label
+  text into `berlaku_hingga`), both now fixed and covered by regression
+  tests in `services/ocr/tests/test_parsing.py`.
+  GPU (`paddlepaddle-gpu`) was tried twice: once diagnosed as a same-process
+  DLL collision with PyTorch (which motivated the service split above), then
+  retried standalone in the now-isolated OCR service — and it *still* failed
+  the same way (`WinError 127` loading `cudnn_engines_precompiled64_9.dll`),
+  even with no PyTorch anywhere in that process. The real cause turned out
+  to be the `zlibwapi.dll` NVIDIA's own docs point to for cuDNN-on-Windows: a
+  decade-old zlib 1.2.3 build that's likely missing exports modern cuDNN 9.5
+  expects — no modern replacement was found (conda-forge's zlib doesn't ship
+  that DLL name/ABI at all). Reverted to CPU for reliability. Remaining
+  levers if more speed is needed: an older pre-3.x paddlepaddle that might
+  restore working MKL-DNN on CPU (real risk: probably forces a paddleocr 2.x
+  downgrade too, a different API), or `PP-OCRv6_tiny_*` if its accuracy risks
+  turn out to be acceptable for a given deployment. Still worth routing
+  through `/v1/ktp/jobs` (async), not the sync endpoint, in production.
