@@ -302,8 +302,21 @@ than redesigning the generator off a single sample.
   outward by a small margin before warping. All covered by regression
   tests (`services/ocr/tests/test_field_labels.py`,
   `test_parsing.py`).
-- **OCR latency is ~3-4s/request, CPU only** (down from ~12-14s). Two CPU-only
-  optimizations got it there: skipping PaddleOCR's redundant doc-orientation/
+- **OCR latency is ~3-4s/request on small synthetic images, but ~13s on a
+  real phone photo — CPU only, and this gap was never measured until now.**
+  That 3-4s figure was only ever benchmarked against the 960×720
+  synthetic scenes this project generates; a real phone photo is much
+  higher-resolution (the real KTP tested above produced a card bounding box
+  alone running to 1571×1136, so the source photo is at least that large),
+  and both YOLO detection and PaddleOCR's text detection/recognition stages
+  scale with image area. Measured directly: 3.6-4.2s across three synthetic
+  eval images vs. 13.1s for the one real photo tested, through the same
+  code path (`KtpExtractionPipeline`, full pipeline including detection +
+  the OCR service call). Not yet addressed — downscaling large uploads
+  before detection is the obvious next lever, untried so far.
+
+  The 3-4s synthetic-image figure is itself down from ~12-14s before the
+  two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
   unwarping/textline-orientation stages (already deskewed upstream), and
   switching from `PP-OCRv6_medium_*` to `PP-OCRv6_small_*` models — chosen
   over the even-faster `tiny` tier because `tiny` dropped NIK entirely on a
