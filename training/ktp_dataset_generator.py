@@ -189,10 +189,21 @@ def render_ktp() -> tuple[Image.Image, dict[str, str]]:
     fl = ImageFont.truetype(FONT_REG,  9)
     fv = ImageFont.truetype(FONT_BOLD, 9)
     y  = 100
+    # 17px row spacing (one prior version) let adjacent rows' OCR-detected
+    # boxes overlap ambiguously: an all-caps value's ink reaches full
+    # cap-height, so its detected box starts ~10-17px above the same
+    # nominal y its label was drawn at (labels are mixed-case, e.g. "Tempat/
+    # Tgl Lahir", whose ink starts lower) — an offset nearly as large as the
+    # row spacing itself. That let find_same_row_value's overlap check pull
+    # in the *next* row's value for a label (confirmed via raw OCR geometry
+    # dump: "Jenis Kelamin" was matching both its own value and "Alamat"'s,
+    # and the trailing garbage silently broke golongan_darah's end-anchored
+    # blood-type regex). 24px gives enough margin that a value's offset
+    # top no longer reaches the row above's label.
     for label, value in fields:
         draw.text((145, y),             label,        font=fl, fill=(80, 80, 80))
         draw.text((VALUE_COLUMN_X, y),  f": {value}", font=fv, fill=(10, 10, 10))
-        y += 17
+        y += 24
 
     # ── Footer ────────────────────────────────────────────────────────────────
     draw.rectangle([(0, KTP_H - 6), (KTP_W, KTP_H)], fill=(30, 60, 140))

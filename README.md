@@ -263,13 +263,40 @@ than redesigning the generator off a single sample.
   it out of a combined RT/RW value, which — now that the generator no
   longer combines them — went to 100% missing until fixed). Re-evaluated
   after the fix: `kelurahan_desa` 0% → 83.3% exact match on a fresh
-  synthetic eval set. One regression surfaced and left as-is rather than
-  chased further: `golongan_darah` (blood type) dropped 73% → 50%, but
-  every failure is a clean `None`, not a wrong value — likely the blood-type
-  letter sitting further right in the combined "gender + blood type" value
-  string now reading less reliably, not a new logic bug. Worth a second real
-  card to confirm the layout assumption more broadly before trusting this
-  further.
+  synthetic eval set. One regression surfaced at the time and left as-is:
+  `golongan_darah` (blood type) dropped 73% → 50%, every failure a clean
+  `None`, not a wrong value.
+  **Fixed, root-caused via raw OCR geometry dump (not guessed):** the real
+  cause was a systematic row-bleed affecting several fields, not just
+  golongan_darah. Every value's OCR-detected box turned out to sit
+  consistently ~10-17px *above* its own label's box — an all-caps value's
+  ink reaches full cap-height while its (usually mixed-case) label's
+  doesn't, so text drawn at the identical nominal y produces
+  differently-positioned detected boxes. With only 17px between rows, that
+  offset was large enough for `find_same_row_value`'s overlap check to also
+  (wrongly) qualify the *next* row's value — confirmed directly: "Jenis
+  Kelamin" was matching both its own value and "Alamat"'s, and the
+  trailing non-letter text broke golongan_darah's end-anchored blood-type
+  regex, while "Nama" separately matched its own value plus
+  "Tempat/Tgl Lahir"'s date. Two changes: widened the generator's row
+  spacing from 17px to 24px (`ktp_dataset_generator.py`, close to the max
+  the 640×404 canvas allows before hitting the footer), and made
+  `find_same_row_value` anchor on the best-matching candidate rather than
+  accepting every candidate that merely clears the overlap threshold —
+  preferring an at-or-above candidate over a below one (matching the
+  observed offset direction), then discarding any other candidate not
+  itself close to that anchor. Spacing alone wasn't sufficient (some row
+  pairs' offsets are close to the row spacing itself even at 24px); the
+  matching change was still needed. Re-evaluated on a fresh eval set:
+  `golongan_darah` 50% → 86.7%, `jenis_kelamin` 86.7% → 100%,
+  `tanggal_lahir` 80% → 90% — all fields the row-bleed had been silently
+  touching. First version of the anchor logic (nearest-distance-to-label,
+  no directional preference) regressed `nik` 100% → 93.3% by picking the
+  wrong side of a near-tie in one case; fixed by preferring at-or-above
+  candidates outright rather than nearest-by-distance, confirmed back to
+  100%. All 44 tests still pass. Worth a second real card to confirm this
+  doesn't affect real-KTP matching (the anchor logic is new and only
+  motivated by this synthetic-generator artifact) — untried so far.
 - **Perspective correction, not just rotation, is now implemented** —
   `YoloDetectionService` finds the card's 4 corners (contour + `approxPolyDP`)
   and applies a proper `warpPerspective`, falling back to the old

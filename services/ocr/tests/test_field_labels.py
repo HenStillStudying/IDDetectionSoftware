@@ -1,4 +1,4 @@
-from ktp_ocr.field_labels import find_label_line, find_value_line, same_line_value
+from ktp_ocr.field_labels import find_label_line, find_same_row_value, find_value_line, same_line_value
 from ktp_ocr.text_lines import TextLine
 
 
@@ -56,3 +56,40 @@ def test_same_line_value_returns_none_for_stacked_layout_label():
 def test_same_line_value_returns_none_when_nothing_follows_colon():
     label_line = _line("Nama:", x1=0, y1=0, x2=50, y2=15)
     assert same_line_value(label_line) is None
+
+
+def test_find_same_row_value_excludes_next_row_value_bleeding_upward():
+    # Coordinates from a real synthetic-card failure: an all-caps value's
+    # OCR box reaches full cap-height while its mixed-case label's doesn't,
+    # so the *next* row's value box can start high enough to also clear
+    # "Jenis Kelamin"'s row-overlap check — this used to concatenate
+    # "Alamat"'s value in too, silently breaking golongan_darah's
+    # end-anchored blood-type parsing downstream.
+    label = _line("Jenis Kelamin", x1=128, y1=123, x2=188, y2=140)
+    own_value = _line(": PEREMPUAN Gol. Darah: AB", x1=228, y1=111, x2=377, y2=134)
+    next_row_value = _line(
+        ": JL. SUDIRMAN NO.149 RT 001/RW 005", x1=228, y1=125, x2=416, y2=152
+    )
+
+    result = find_same_row_value([label, own_value, next_row_value], label)
+    assert result is not None
+    value, _ = result
+    assert "SUDIRMAN" not in value
+    assert value == "PEREMPUAN Gol. Darah: AB"
+
+
+def test_find_same_row_value_prefers_above_over_nearest_on_near_tie():
+    # Coordinates from a real synthetic-card failure: NIK's own value sits
+    # slightly *above* the NIK label's center, and Nama's value (the next
+    # row down) happened to sit only marginally closer to the label's
+    # center by raw distance. Picking by nearest-distance alone chose the
+    # wrong one (Nama's value has no digits, so NIK came back empty); the
+    # true value should win because it's the at-or-above candidate.
+    label = _line("NIK", x1=126, y1=66, x2=150, y2=83)
+    own_value = _line(":3455532505839582", x1=225, y1=49, x2=368, y2=78)
+    next_row_value = _line(": JASMIN MARYADI, S.T.", x1=225, y1=72, x2=343, y2=98)
+
+    result = find_same_row_value([label, own_value, next_row_value], label)
+    assert result is not None
+    value, _ = result
+    assert value == "3455532505839582"
