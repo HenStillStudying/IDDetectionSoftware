@@ -227,11 +227,19 @@ than redesigning the generator off a single sample.
   all between month and year, not just a dropped hyphen like the
   previously-fixed case), so `split_tempat_tanggal_lahir` couldn't locate
   the date pattern at all and left the whole unsplit string in
-  `tempat_lahir` instead. Not yet fixed — the existing date-splitting regex
-  in `parsing.py` handles a missing separator in one place, not a fully
-  concatenated month+year. The other two misses are the already-documented
+  `tempat_lahir` instead. The other two misses are the already-documented
   word-spacing artifact (a multi-word value losing its spaces, content
   still correct) — not a new issue.
+  **Fixed**: `_TTL_SEPARATOR` in `parsing.py` required a hyphen-or-space
+  separator between *each* date component (day, month, year); changed
+  every internal separator to optional (`[-\s]?`) so it now recognizes a
+  date with any mix of hyphen, space, or nothing between its parts — the
+  original hyphenated form, the previously-fixed dropped-hyphen form, and
+  this fully-concatenated form all now split correctly. Covered by a new
+  regression test in `test_parsing.py`; full suite (42 tests) and
+  `evaluate_pipeline.py` both still pass with no regression (this exact
+  degradation pattern isn't present in the synthetic eval set, so its
+  numbers are unchanged, not improved).
 - Trained purely on synthetic data — has now seen exactly one real photo
   (see above), tested twice. Broader real-world validation (more samples,
   different regions/eras/lighting) is still needed before this is

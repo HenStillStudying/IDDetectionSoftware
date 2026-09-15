@@ -22,6 +22,12 @@ def test_split_tempat_tanggal_lahir_with_dropped_hyphen_in_date():
     assert split_tempat_tanggal_lahir("SORONG, 13-03 2007") == ("SORONG", "13-03 2007")
 
 
+def test_split_tempat_tanggal_lahir_with_both_separators_dropped():
+    # A second real KTP test showed OCR collapsing both the space AND the
+    # hyphen between month and year, leaving no separator there at all.
+    assert split_tempat_tanggal_lahir("SORONG,13-032007") == ("SORONG", "13-032007")
+
+
 def _line(text: str, x1: float = 0, y1: float = 0, x2: float = 10, y2: float = 10) -> TextLine:
     return TextLine(text=text, confidence=0.9, x1=x1, y1=y1, x2=x2, y2=y2)
 

@@ -23,7 +23,7 @@ def only_digits(text: str) -> str:
     return re.sub(r"\D", "", text)
 
 
-_TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}[-\s]\d{1,2}[-\s]\d{4})")
+_TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}[-\s]?\d{1,2}[-\s]?\d{4})")
 
 
 def split_tempat_tanggal_lahir(value: str) -> tuple[str | None, str | None]:
@@ -33,10 +33,14 @@ def split_tempat_tanggal_lahir(value: str) -> tuple[str | None, str | None]:
     OCR models sometimes misread the comma as a period — anchoring on the
     date pattern (rather than just the first comma) means that misread
     still splits correctly instead of silently merging both fields. The
-    date's own internal separators are matched as hyphen-or-space too — a
-    real KTP test showed OCR dropping one of the two hyphens ("13-03 2007")
-    entirely, which a hyphen-only pattern would fail to recognize as a date
-    at all and merge into tempat_lahir instead.
+    date's own internal separators (hyphen or space) are each optional, not
+    just hyphen-or-space-required — a real KTP test first showed OCR
+    dropping one of the two hyphens entirely ("13-03 2007", still
+    space-separated), then a second test showed both separators collapsing
+    with nothing between month and year at all ("13-032007"). A
+    hyphen-or-space-required pattern recognized the first as a date but not
+    the second, merging it whole into tempat_lahir instead; optional
+    separators recognize both, plus the plain-hyphenated original.
     """
     match = _TTL_SEPARATOR.search(value)
     if not match:
