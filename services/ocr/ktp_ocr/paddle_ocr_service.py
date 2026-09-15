@@ -120,7 +120,8 @@ class PaddleOcrService(OcrService):
         ttl_raw, ttl_conf = _row_value(lines, "tempat_tanggal_lahir", card_size)
         jk_raw, jk_conf = _row_value(lines, "jenis_kelamin_gol_darah", card_size)
         alamat_raw, alamat_conf = _row_value(lines, "alamat", card_size)
-        rtrw_raw, rtrw_conf = _row_value(lines, "rt_rw_kelurahan", card_size)
+        rt_rw, rtrw_conf = _row_value(lines, "rt_rw", card_size)
+        kelurahan_desa, kel_conf = _row_value(lines, "kelurahan_desa", card_size)
         kec_raw, kec_conf = _row_value(lines, "kecamatan", card_size)
         agama_raw, agama_conf = _row_value(lines, "agama", card_size)
         status_raw, status_conf = _row_value(lines, "status_perkawinan", card_size)
@@ -133,7 +134,16 @@ class PaddleOcrService(OcrService):
         jenis_kelamin, golongan_darah = (
             split_jenis_kelamin_gol_darah(jk_raw) if jk_raw else (None, None)
         )
-        rt_rw, kelurahan_desa = split_rt_rw_kelurahan(rtrw_raw) if rtrw_raw else (None, None)
+
+        # RT/RW and Kel/Desa are separate rows (confirmed against a real
+        # KTP), so each is looked up directly above — but if OCR still
+        # merges them onto one line/row despite that (older card designs,
+        # OCR noise, tight spacing), fall back to splitting them out of
+        # the combined rt_rw value the way a single merged row would read.
+        if kelurahan_desa is None and rt_rw:
+            split_rt_rw, split_kelurahan = split_rt_rw_kelurahan(rt_rw)
+            if split_kelurahan is not None:
+                rt_rw, kelurahan_desa = split_rt_rw, split_kelurahan
 
         return KtpFields(
             nik=_field(only_digits(nik_raw) if nik_raw else None, nik_conf),
@@ -146,7 +156,7 @@ class PaddleOcrService(OcrService):
             golongan_darah=_field(golongan_darah, jk_conf),
             alamat=_field(alamat_raw, alamat_conf),
             rt_rw=_field(rt_rw, rtrw_conf),
-            kelurahan_desa=_field(kelurahan_desa, rtrw_conf),
+            kelurahan_desa=_field(kelurahan_desa, kel_conf if kel_conf else rtrw_conf),
             kecamatan=_field(kec_raw, kec_conf),
             agama=_field(snap_to_enum(agama_raw, RELIGIONS) if agama_raw else None, agama_conf),
             status_perkawinan=_field(

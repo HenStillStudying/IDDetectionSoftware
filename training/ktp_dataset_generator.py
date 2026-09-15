@@ -53,6 +53,11 @@ FONT_BOLD = _find_font(
 
 KTP_W, KTP_H = 640, 404   # card canvas size
 IMG_W, IMG_H = 960, 720   # full scene size (card placed on background)
+# Fixed column where every field's value starts, regardless of its label's
+# length — a real KTP's label and value sit side-by-side on one row rather
+# than stacked, and confirmed real labels ("Status Perkawinan",
+# "Kewarganegaraan") fit comfortably before this column at the field font size.
+VALUE_COLUMN_X = 250
 
 STREETS = [
     "JL. MERDEKA", "JL. SUDIRMAN", "JL. GATOT SUBROTO",
@@ -150,37 +155,46 @@ def render_ktp() -> tuple[Image.Image, dict[str, str]]:
               fill=(30, 60, 140), anchor="mm")
 
     # ── NIK ───────────────────────────────────────────────────────────────────
-    draw.text((145, 72), "NIK",
+    # Label and value on the same row (label column, then a fixed value
+    # column further right) rather than stacked on two lines — confirmed
+    # against a real KTP photo to be the actual layout; the card's own
+    # label/value boxes sit side-by-side on one visual row, not one above
+    # the other. NIK keeps its larger/bolder value font (also matches the
+    # real card's visual emphasis on this field).
+    draw.text((145, 78), "NIK",
               font=ImageFont.truetype(FONT_BOLD, 11), fill=(30, 30, 100))
-    draw.text((145, 86), f": {nik}",
-              font=ImageFont.truetype(FONT_BOLD, 15), fill=(10, 10, 10))
+    draw.text((VALUE_COLUMN_X, 78), f": {nik}",
+              font=ImageFont.truetype(FONT_BOLD, 14), fill=(10, 10, 10))
 
     # ── Fields ────────────────────────────────────────────────────────────────
+    # RT/RW and Kel/Desa are separate rows (also confirmed against a real
+    # card) — a prior version of this generator combined them onto one row,
+    # which the OCR pipeline had never seen split and so silently failed to
+    # extract kelurahan_desa on a real card.
     fields = [
         ("Nama",              name),
         ("Tempat/Tgl Lahir",  f"{truncate(pob,16)}, {dob}"),
         ("Jenis Kelamin",     f"{gender}   Gol. Darah: {blood}"),
         ("Alamat",            address),
-        ("RT/RW",             f"{rt_rw}   Kel/Desa: {kel}"),
+        ("RT/RW",             rt_rw),
+        ("Kel/Desa",          kel),
         ("Kecamatan",         kec),
         ("Agama",             religion),
         ("Status Perkawinan", marital),
         ("Pekerjaan",         job),
         ("Kewarganegaraan",   "WNI"),
+        ("Berlaku Hingga",    "SEUMUR HIDUP"),
     ]
 
     fl = ImageFont.truetype(FONT_REG,  9)
     fv = ImageFont.truetype(FONT_BOLD, 9)
-    y  = 108
+    y  = 100
     for label, value in fields:
-        draw.text((145, y),      label,        font=fl, fill=(80, 80, 80))
-        draw.text((145, y + 11), f": {value}", font=fv, fill=(10, 10, 10))
-        y += 26
+        draw.text((145, y),             label,        font=fl, fill=(80, 80, 80))
+        draw.text((VALUE_COLUMN_X, y),  f": {value}", font=fv, fill=(10, 10, 10))
+        y += 17
 
     # ── Footer ────────────────────────────────────────────────────────────────
-    fsig = ImageFont.truetype(FONT_REG, 8)
-    draw.text((145, y + 4), "Berlaku Hingga: SEUMUR HIDUP",
-              font=fsig, fill=(80, 80, 80))
     draw.rectangle([(0, KTP_H - 6), (KTP_W, KTP_H)], fill=(30, 60, 140))
 
     ground_truth = {

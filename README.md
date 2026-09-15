@@ -211,13 +211,32 @@ than redesigning the generator off a single sample.
 - Trained purely on synthetic data — has now seen exactly one real photo
   (see above). Broader real-world validation (more samples, different
   regions/eras/lighting) is still needed before this is trustworthy.
-- **Not yet done: research regional and older KTP layout variations before
-  generating more/different synthetic training data.** The one real card
-  tested revealed at least one structural difference (RT/RW and Kel/Desa as
-  separate rows, not combined) that the generator doesn't produce — there
-  are likely more. Explicitly deferred rather than guessed at from a single
-  sample; the generator should reflect researched real variation, not
-  whatever one card happened to show.
+- **Researched KTP-el layout variation, scoped to the current electronic-KTP
+  era only (~2011-present) — the older pre-chip format is obsolete and out
+  of scope.** Finding: KTP-el is governed by a single national specification
+  (currently Permendagri No. 72/2022) with centrally-distributed
+  enrollment/printing software, not a regionally redesigned template —
+  reasonable evidence there's one layout nationally, not several. No source
+  found directly confirms the specific visual detail we needed (label/value
+  side-by-side vs. stacked) at that level of detail, though — that's
+  inferred from "one national template," not independently verified beyond
+  the one real card tested. Acted on it anyway since it's strictly better
+  than the previous, already-proven-wrong assumption regardless: the
+  generator now renders every field label and value side-by-side on one row
+  (fixed value column) instead of stacked on two lines, and RT/RW and
+  Kel/Desa as separate rows instead of combined — both matching the real
+  card. `field_labels.py`'s `ROW_LABELS`/`_row_value` updated to look up
+  `kelurahan_desa` as its own row (previously only extracted by splitting
+  it out of a combined RT/RW value, which — now that the generator no
+  longer combines them — went to 100% missing until fixed). Re-evaluated
+  after the fix: `kelurahan_desa` 0% → 83.3% exact match on a fresh
+  synthetic eval set. One regression surfaced and left as-is rather than
+  chased further: `golongan_darah` (blood type) dropped 73% → 50%, but
+  every failure is a clean `None`, not a wrong value — likely the blood-type
+  letter sitting further right in the combined "gender + blood type" value
+  string now reading less reliably, not a new logic bug. Worth a second real
+  card to confirm the layout assumption more broadly before trusting this
+  further.
 - **Perspective correction, not just rotation, is now implemented** —
   `YoloDetectionService` finds the card's 4 corners (contour + `approxPolyDP`)
   and applies a proper `warpPerspective`, falling back to the old
