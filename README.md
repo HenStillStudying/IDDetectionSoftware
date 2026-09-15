@@ -73,6 +73,12 @@ python ktp_dataset_generator.py --count 300 --output ./dataset --aug-factor 2
 python train_detector.py --data ./dataset/ktp.yaml --epochs 40
 ```
 
+`ktp_dataset_generator.py` also generates hard-negative examples by
+default (`--neg-ratio 0.15`) — plain backgrounds and non-KTP,
+card-shaped/text-bearing distractors, each labeled with an empty YOLO
+label — so the detector learns to reject non-KTP objects, not just detect
+KTPs (see "False-positive tested" under Status).
+
 ## Test
 
 ```bash
@@ -319,3 +325,30 @@ than redesigning the generator off a single sample.
   API), or `PP-OCRv6_tiny_*` if its accuracy risks turn out to be
   acceptable for a given deployment. Still worth routing through
   `/v1/ktp/jobs` (async), not the sync endpoint, in production regardless.
+- **False-positive tested: does the detector correctly reject non-KTP
+  images?** Never validated before — all prior testing only checked
+  detection on images that do contain a card. Ran the trained detector
+  against a batch of real, definitely-card-free photos (Windows wallpapers)
+  plus targeted synthetic distractors. 10/10 real photos were correctly
+  rejected, but 2 targeted tests exposed a real gap: a generic
+  business-card mockup (white rectangle, black border, unrelated text
+  lines — nothing KTP-specific about it) triggered a false detection at
+  0.92 confidence, *higher* than most true positives, and one wallpaper got
+  boxed as a "card" covering nearly the entire image. Root cause: the
+  training set was 100% positive examples — every synthetic training image
+  contained a KTP, so the model had learned "bordered rectangle containing
+  text lines" rather than any KTP-specific visual signature (blue header
+  band, photo placeholder, particular field layout). Confirmed with an
+  isolating test: a plain colored rectangle with no text was correctly
+  ignored, but adding a border + text lines to that same rectangle made it
+  fire. Fixed by adding hard-negative generation to
+  `ktp_dataset_generator.py` (`render_distractor`/`compose_negative_scene`,
+  new `--neg-ratio` flag, default 0.15): plain backgrounds plus
+  deliberately card-shaped, text-bearing but non-KTP objects (a
+  business-card-style mockup, a framed-photo panel, a receipt-like narrow
+  strip of text), all labeled with an empty YOLO label file. Regenerated
+  the dataset and retrained (same yolov8n/40-epoch settings) — mAP50 held
+  at 0.995 (no positive-detection regression, confirmed via
+  `evaluate_pipeline.py` giving identical per-field numbers to before), and
+  all 12/12 false-positive tests now pass, including both that previously
+  failed.

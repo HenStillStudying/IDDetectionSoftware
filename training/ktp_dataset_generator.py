@@ -219,6 +219,91 @@ def render_ktp() -> tuple[Image.Image, dict[str, str]]:
     return img, ground_truth
 
 
+# ─── Hard-negative distractors ─────────────────────────────────────────────
+#
+# False-positive testing against real (non-KTP) photos found the detector,
+# trained only on positive KTP examples, had learned "bordered rectangle
+# containing lines of text" rather than anything KTP-specific — a plain
+# colored rectangle was correctly ignored, but a generic business-card mockup
+# (white rect, black border, unrelated text lines) triggered a false
+# detection at *higher* confidence than most true positives. These
+# distractors are deliberately card-shaped and text-bearing, but visually
+# and structurally distinct from a KTP (different proportions, palette,
+# layout, no "REPUBLIK INDONESIA"/Garuda emblem), so the model has to learn
+# actual KTP-specific features instead of generic "rectangle with text."
+
+DISTRACTOR_HEADER_COLORS = [
+    (60, 130, 70),     # green (e.g. a membership/loyalty card)
+    (150, 40, 40),      # red
+    (90, 90, 95),       # slate gray
+    None,                # no header bar at all
+]
+DISTRACTOR_TITLES = [
+    "MEMBER CARD", "STUDENT ID", "EMPLOYEE PASS", "LIBRARY CARD",
+    "ACME CORP", "LOYALTY CLUB", "ACCESS PASS",
+]
+
+
+def _random_words(n: int) -> str:
+    return " ".join(fake.word() for _ in range(n)).upper()
+
+
+def render_distractor() -> Image.Image:
+    """Renders a random non-KTP, card-shaped or panel-shaped object — a
+    hard negative for detection training. Returns an RGBA image so it can
+    be rotated/pasted onto a scene the same way render_ktp()'s output is.
+    """
+    kind = random.choice(["card", "photo_panel", "receipt"])
+
+    if kind == "card":
+        w, h = random.randint(380, 700), random.randint(220, 440)
+        bg = random.choice([(255, 255, 255), (245, 245, 240), (250, 248, 235)])
+        img = Image.new("RGBA", (w, h), (*bg, 255))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([(0, 0), (w - 1, h - 1)], outline=(0, 0, 0), width=3)
+
+        header = random.choice(DISTRACTOR_HEADER_COLORS)
+        body_top = 0
+        if header is not None:
+            bar_h = int(h * 0.15)
+            draw.rectangle([(0, 0), (w, bar_h)], fill=header)
+            draw.ellipse([(10, 5), (10 + bar_h - 10, bar_h - 5)], fill=(220, 220, 220))
+            draw.text((w // 2, bar_h // 2), random.choice(DISTRACTOR_TITLES),
+                       font=ImageFont.truetype(FONT_BOLD, 14), fill="white", anchor="mm")
+            body_top = bar_h + 15
+
+        fl = ImageFont.truetype(FONT_REG, 10)
+        y = body_top + 15
+        for _ in range(random.randint(3, 6)):
+            draw.text((20, y), _random_words(random.randint(2, 4)), font=fl, fill=(20, 20, 20))
+            y += 22
+            if y > h - 20:
+                break
+        return img
+
+    if kind == "photo_panel":
+        w, h = random.randint(200, 500), random.randint(200, 500)
+        fill = (random.randint(60, 220), random.randint(60, 220), random.randint(60, 220))
+        img = Image.new("RGBA", (w, h), (*fill, 255))
+        draw = ImageDraw.Draw(img)
+        if random.random() < 0.6:
+            draw.rectangle([(0, 0), (w - 1, h - 1)], outline=(255, 255, 255), width=6)
+        return img
+
+    # receipt: narrow, many short lines
+    w, h = random.randint(180, 260), random.randint(400, 650)
+    img = Image.new("RGBA", (w, h), (255, 255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    fl = ImageFont.truetype(FONT_REG, 9)
+    y = 15
+    for _ in range(random.randint(10, 18)):
+        draw.text((10, y), _random_words(random.randint(1, 3)), font=fl, fill=(10, 10, 10))
+        y += 18
+        if y > h - 15:
+            break
+    return img
+
+
 # ─── Scene Composer ───────────────────────────────────────────────────────────
 
 def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
@@ -257,6 +342,34 @@ def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
     return scene, (x1, y1, x2, y2)
 
 
+def compose_negative_scene() -> Image.Image:
+    """Builds a background-only scene with no KTP present — either a plain
+    background, or a background with a non-KTP distractor object placed on
+    it (see render_distractor). No bounding box is returned: the caller
+    writes an empty YOLO label file for these, the standard way to teach a
+    detector what a true negative looks like.
+    """
+    scene = Image.new("RGB", (IMG_W, IMG_H),
+                      color=(random.randint(30, 200),
+                             random.randint(30, 200),
+                             random.randint(30, 200)))
+
+    if random.random() < 0.25:
+        return scene  # plain background, nothing placed on it
+
+    distractor = render_distractor()
+    angle = random.uniform(-15, 15)
+    rotated = distractor.rotate(angle, expand=True)
+
+    rw, rh = rotated.size
+    max_x = max(0, IMG_W - rw)
+    max_y = max(0, IMG_H - rh)
+    px = random.randint(0, max(0, max_x))
+    py = random.randint(0, max(0, max_y))
+    scene.paste(rotated, (px, py), mask=rotated)
+    return scene
+
+
 def xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h) -> str:
     """Converts xyxy bbox to YOLO normalized format string."""
     cx = ((x1 + x2) / 2) / img_w
@@ -279,13 +392,28 @@ augment = A.Compose([
 ], bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"],
                              clip=True, min_visibility=0.3))
 
+# Same transforms, without bbox_params — negatives have no object of
+# interest for Albumentations to track.
+augment_negative = A.Compose([
+    A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.7),
+    A.GaussianBlur(blur_limit=(3, 5), p=0.4),
+    A.GaussNoise(p=0.3),
+    A.RandomShadow(p=0.3),
+    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=0.4),
+    A.ImageCompression(quality_range=(60, 95), p=0.4),
+])
+
 
 # ─── Main Generator ───────────────────────────────────────────────────────────
 
-def generate_dataset(count: int, output_dir: str, aug_factor: int = 2):
+def generate_dataset(count: int, output_dir: str, aug_factor: int = 2, neg_ratio: float = 0.15):
     """
     Generates `count` base scenes then augments each `aug_factor` times.
-    Total images = count * (1 + aug_factor).
+    Total positive images = count * (1 + aug_factor); an additional
+    negative (no-KTP) set of roughly count * neg_ratio base scenes is
+    generated the same way, each labeled with an empty YOLO label file, so
+    the detector sees true background/distractor examples during training
+    rather than only ever seeing images that contain a KTP.
     """
     base_dir  = Path(output_dir)
     all_imgs  = []   # collect everything before splitting
@@ -334,6 +462,31 @@ def generate_dataset(count: int, output_dir: str, aug_factor: int = 2):
         if (i + 1) % 50 == 0:
             print(f"  {i+1}/{count} base images done...")
 
+    neg_count = int(count * neg_ratio)
+    print(f"Generating {neg_count} negative (no-KTP) scenes...")
+    for i in range(neg_count):
+        scene = compose_negative_scene()
+        stem = f"neg_{i:05d}"
+
+        img_path = tmp_dir / f"{stem}.jpg"
+        scene.save(img_path, quality=90)
+        all_imgs.append((img_path, ""))  # empty label = background image
+
+        scene_np = np.array(scene)
+        for j in range(aug_factor):
+            try:
+                aug_arr = augment_negative(image=scene_np)["image"]
+                aug_img = Image.fromarray(aug_arr)
+                aug_stem = f"neg_{i:05d}_aug{j}"
+                aug_path = tmp_dir / f"{aug_stem}.jpg"
+                aug_img.save(aug_path, quality=85)
+                all_imgs.append((aug_path, ""))
+            except Exception:
+                pass
+
+        if (i + 1) % 50 == 0:
+            print(f"  {i+1}/{neg_count} negative images done...")
+
     # ── Train / Val / Test split ─────────────────────────────────────────────
     random.shuffle(all_imgs)
     total  = len(all_imgs)
@@ -372,8 +525,9 @@ nc: 1
 names: [ktp]
 """)
 
+    n_negative = sum(1 for _, yolo_line in all_imgs if not yolo_line)
     print(f"\nDone! Dataset summary:")
-    print(f"  Total images : {total}")
+    print(f"  Total images : {total} ({n_negative} negative / no-KTP)")
     print(f"  Train        : {len(splits['train'])}")
     print(f"  Val          : {len(splits['val'])}")
     print(f"  Test         : {len(splits['test'])}")
@@ -390,6 +544,8 @@ if __name__ == "__main__":
                         help="Output directory (default: ./dataset)")
     parser.add_argument("--aug-factor", type=int, default=2,
                         help="Augmented copies per base image (default: 2)")
+    parser.add_argument("--neg-ratio", type=float, default=0.15,
+                        help="Negative (no-KTP) base scenes as a fraction of --count (default: 0.15)")
     args = parser.parse_args()
 
-    generate_dataset(args.count, args.output, args.aug_factor)
+    generate_dataset(args.count, args.output, args.aug_factor, args.neg_ratio)
