@@ -1,11 +1,14 @@
 """Real OcrService implementation backed by PaddleOCR.
 
 Reads the whole rectified card with a general OCR engine, then locates each
-field by fuzzy-matching known Indonesian KTP labels and reading the value
-positioned below each label (see field_labels.py for why geometry, not OCR
-line order, is what locates the value). This tolerates the imperfect
-rectification produced by YoloDetectionService — a still-somewhat-rotated
-or shadow-marked card — far better than a fixed-pixel-region crop would.
+field by fuzzy-matching known Indonesian KTP labels and reading its value —
+either from the same OCR line as the label ("Label : Value", confirmed to be
+how a real KTP is printed) or, failing that, from the line positioned below
+it (how our synthetic generator currently renders every field; see
+field_labels.py for why geometry, not OCR line order, locates it). This
+tolerates the imperfect rectification produced by YoloDetectionService — a
+still-somewhat-rotated or shadow-marked card — far better than a
+fixed-pixel-region crop would.
 """
 
 from __future__ import annotations
@@ -18,7 +21,13 @@ from ktp_schema import FieldValue, Gender, JOBS, KtpFields, MARITAL_STATUSES, RE
 GENDERS = [Gender.MALE.value, Gender.FEMALE.value]
 CITIZENSHIPS = ["WNI", "WNA"]  # not in ktp_schema.reference_data — only 2 values, fixed by the KTP form itself
 
-from .field_labels import ROW_LABELS, find_label_line, find_value_line
+from .field_labels import (
+    ROW_LABELS,
+    find_label_line,
+    find_same_row_value,
+    find_value_line,
+    same_line_value,
+)
 from .parsing import (
     find_berlaku_hingga,
     find_kota_kabupaten,
@@ -39,6 +48,15 @@ def _row_value(
     label_line = find_label_line(lines, ROW_LABELS[row_key])
     if label_line is None:
         return None, 0.0
+
+    inline_value = same_line_value(label_line)
+    if inline_value is not None:
+        return inline_value, label_line.confidence
+
+    same_row = find_same_row_value(lines, label_line)
+    if same_row is not None:
+        return same_row
+
     value_line = find_value_line(lines, label_line, card_size)
     if value_line is None:
         return None, 0.0
@@ -140,7 +158,7 @@ class PaddleOcrService(OcrService):
             kewarganegaraan=_field(
                 snap_to_enum(wn_raw, CITIZENSHIPS) if wn_raw else None, wn_conf
             ),
-            berlaku_hingga=_field_from_match(find_berlaku_hingga(lines)),
+            berlaku_hingga=_field_from_match(find_berlaku_hingga(lines, card_size)),
             provinsi=_field_from_match(find_provinsi(lines)),
             kota_kabupaten=_field_from_match(find_kota_kabupaten(lines)),
         )

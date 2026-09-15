@@ -182,9 +182,42 @@ words ("GG" and "TENGAH" both scored high enough against "hingga"), and a
 `split_rt_rw_kelurahan` regex that broke when OCR dropped a separator —
 each fixed and each covered by a regression test.
 
-**Known gaps to address before any real-world use:**
-- Trained purely on synthetic data — hasn't seen a real photo yet. Needs
-  real (or far more realistic) KTP images before it's trustworthy.
+**Tested against one real KTP photo** (a real card, kept strictly local for
+the test and never committed or persisted anywhere in this repo). Detection
+worked essentially perfectly — 0.95 confidence, correctly rectified. OCR
+extraction initially came back almost entirely wrong: a systematic
+one-row-shifted misread across nearly every field. Root cause: the
+synthetic generator stacks label above value on two lines; a real KTP
+prints them as separate OCR boxes side-by-side on the same row (occasionally
+merged into one line) — a layout our label-matching had never seen. Fixed
+`field_labels.py`/`parsing.py` to try three strategies in order (same-line
+merged, same-row separate box, stacked-below) instead of only the last one,
+plus two guards found necessary along the way (an oversized garbled label
+box wrongly excluding its own value; the card's background security
+watermark texture OCR'ing as spurious text that contaminated an unrelated
+field). Also found the `PROVINCES` reference list was an incomplete
+12-province sample missing real (including newer, 2022-created) provinces
+entirely — expanded to the full official 38, plus a missing religion
+(Konghucu). Re-tested after each fix: **15 of 17 fields now correct** (a few with OCR
+word-spacing noise — e.g. a multi-word value coming back with its spaces
+dropped, content right but concatenated — a PaddleOCR text-recognition
+artifact, not a matching bug). The one
+remaining real gap: `kelurahan_desa` comes back empty because the real
+card prints RT/RW and Kel/Desa as fully separate rows, while the synthetic
+generator (and this schema) combine them into one — a structural,
+schema-level difference deliberately left unfixed until proper research
+into regional/historical KTP layout variation is done (see below), rather
+than redesigning the generator off a single sample.
+- Trained purely on synthetic data — has now seen exactly one real photo
+  (see above). Broader real-world validation (more samples, different
+  regions/eras/lighting) is still needed before this is trustworthy.
+- **Not yet done: research regional and older KTP layout variations before
+  generating more/different synthetic training data.** The one real card
+  tested revealed at least one structural difference (RT/RW and Kel/Desa as
+  separate rows, not combined) that the generator doesn't produce — there
+  are likely more. Explicitly deferred rather than guessed at from a single
+  sample; the generator should reflect researched real variation, not
+  whatever one card happened to show.
 - **Perspective correction, not just rotation, is now implemented** —
   `YoloDetectionService` finds the card's 4 corners (contour + `approxPolyDP`)
   and applies a proper `warpPerspective`, falling back to the old

@@ -10,6 +10,7 @@ import re
 
 from ktp_schema import BLOODS, PROVINCES
 
+from .field_labels import find_same_row_value, find_value_line
 from .text_lines import TextLine
 
 
@@ -22,7 +23,7 @@ def only_digits(text: str) -> str:
     return re.sub(r"\D", "", text)
 
 
-_TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}-\d{1,2}-\d{4})")
+_TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}[-\s]\d{1,2}[-\s]\d{4})")
 
 
 def split_tempat_tanggal_lahir(value: str) -> tuple[str | None, str | None]:
@@ -31,7 +32,11 @@ def split_tempat_tanggal_lahir(value: str) -> tuple[str | None, str | None]:
     Splits on a comma OR period immediately before the date, since smaller
     OCR models sometimes misread the comma as a period — anchoring on the
     date pattern (rather than just the first comma) means that misread
-    still splits correctly instead of silently merging both fields.
+    still splits correctly instead of silently merging both fields. The
+    date's own internal separators are matched as hyphen-or-space too — a
+    real KTP test showed OCR dropping one of the two hyphens ("13-03 2007")
+    entirely, which a hyphen-only pattern would fail to recognize as a date
+    at all and merge into tempat_lahir instead.
     """
     match = _TTL_SEPARATOR.search(value)
     if not match:
@@ -127,12 +132,21 @@ _HINGGA_MATCH_THRESHOLD = 0.5
 _HINGGA_MIN_WORD_LENGTH = 4  # see note below on why this floor matters
 
 
-def find_berlaku_hingga(lines: list[TextLine]) -> tuple[str, float] | None:
+def find_berlaku_hingga(
+    lines: list[TextLine], card_size: tuple[int, int]
+) -> tuple[str, float] | None:
     """Finds 'hingga' via fuzzy per-word matching, not an exact substring
     check — OCR noise can mangle it badly enough to lose a letter (e.g.
     'Hingga' -> 'Hnga', or the whole line to 'Betau Hnga: SEUMUR HIDUP'),
     which an exact 'in line.text' check would silently miss entirely rather
     than just misplacing the value.
+
+    Once the label word is found, the value can be on the same line
+    ("Berlaku Hingga: SEUMUR HIDUP", our synthetic layout), a separate box
+    on the same row ("Berlaku Hingga" | "SEUMUR HIDUP" as two OCR boxes,
+    confirmed to be how a real KTP prints it), or stacked below — the same
+    three-way fallback every other field uses, built around field_labels'
+    matchers since they only need a TextLine's bounds, not how it was found.
 
     Picks the single BEST-scoring word across every line, not the first one
     that merely clears the threshold: OCR line order isn't top-to-bottom
@@ -166,8 +180,18 @@ def find_berlaku_hingga(lines: list[TextLine]) -> tuple[str, float] | None:
     if best_line is None or best_score < _HINGGA_MATCH_THRESHOLD:
         return None
 
-    value = " ".join(best_line.text.split()[best_word_index + 1 :]).lstrip(" :.").strip()
-    return (value, best_line.confidence) if value else None
+    inline_value = " ".join(best_line.text.split()[best_word_index + 1 :]).lstrip(" :.").strip()
+    if inline_value:
+        return inline_value, best_line.confidence
+
+    same_row = find_same_row_value(lines, best_line)
+    if same_row is not None:
+        return same_row
+
+    value_line = find_value_line(lines, best_line, card_size)
+    if value_line is None:
+        return None
+    return strip_value_prefix(value_line.text), value_line.confidence
 
 
 def find_provinsi(lines: list[TextLine]) -> tuple[str, float] | None:

@@ -1,4 +1,4 @@
-from ktp_ocr.field_labels import find_label_line, find_value_line
+from ktp_ocr.field_labels import find_label_line, find_value_line, same_line_value
 from ktp_ocr.text_lines import TextLine
 
 
@@ -30,3 +30,29 @@ def test_find_label_line_tolerates_ocr_noise():
     lines = [_line("Kecanatan", x1=0, y1=0, x2=50, y2=15)]  # "Kecamatan" misread
     match = find_label_line(lines, ["Kecamatan"])
     assert match is lines[0]
+
+
+def test_find_label_line_matches_same_line_label_value_format():
+    # A real KTP prints "Label : Value" as one OCR line — matching the
+    # whole line against a short label like "NIK" used to score far below
+    # threshold (diluted by the trailing value text). Only the portion
+    # before the first colon should be compared.
+    lines = [_line("NIK : 9205031303070001", x1=0, y1=0, x2=200, y2=15)]
+    match = find_label_line(lines, ["NIK"])
+    assert match is lines[0]
+
+
+def test_same_line_value_extracts_value_after_colon():
+    label_line = _line("NIK : 9205031303070001", x1=0, y1=0, x2=200, y2=15)
+    assert same_line_value(label_line) == "9205031303070001"
+
+
+def test_same_line_value_returns_none_for_stacked_layout_label():
+    # The synthetic generator's label-only line has no colon at all.
+    label_line = _line("Nama", x1=0, y1=0, x2=50, y2=15)
+    assert same_line_value(label_line) is None
+
+
+def test_same_line_value_returns_none_when_nothing_follows_colon():
+    label_line = _line("Nama:", x1=0, y1=0, x2=50, y2=15)
+    assert same_line_value(label_line) is None
