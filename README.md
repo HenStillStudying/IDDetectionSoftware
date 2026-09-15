@@ -370,6 +370,32 @@ than redesigning the generator off a single sample.
   positives) always places its subject rotated with background margin, so
   neither positives nor negatives ever train the model on an edge-to-edge,
   unrotated frame — an out-of-distribution gap in how training scenes are
-  composed, not specifically a color/content issue. Left undone for now:
-  adding edge-to-edge/unrotated placements to scene composition (for both
-  positives and negatives) would likely close this.
+  composed, not specifically a color/content issue.
+  A third round confirmed that hypothesis and closed most of it: two
+  independent tests — a grayscale/photocopy-style render of a real
+  synthetic KTP (checking the *inverse* risk, that color-reliance might
+  cause false *negatives* on a real card; it didn't, all variants still
+  detected at 0.95+) and two fictional "sibling" Indonesian documents (a
+  SIM/driver's-license mockup sharing several KTP field labels and general
+  styling, and a KK/family-card mockup with a very different tall-page
+  layout) — showed the SIM look-alike hit the exact same
+  edge-to-edge/no-rotation-only failure pattern (0.76 confidence) despite
+  using a different blue than KTP's, while the KK look-alike (very
+  different shape) was rejected cleanly in every form. That confirmed the
+  gap was scene-composition (framing), not color or content. Fixed by
+  adding `_compose_edge_to_edge` to `ktp_dataset_generator.py`: 15% of the
+  time, both `compose_scene` (positives) and `compose_negative_scene`
+  (negatives) now place their subject filling the entire frame edge-to-edge
+  with near-zero rotation instead of always leaving background margin and
+  a larger rotation range. Retrained again — mAP50/OCR accuracy unchanged
+  — and both previously-failing edge-to-edge cases (blue-header mockup,
+  SIM mockup) now correctly reject. This did surface one new, weaker false
+  positive: the KK mockup, flat/edge-to-edge only, now fires at 0.50
+  confidence (barely above the 0.4 detection threshold, boxing only the
+  page's top portion) — versus 0.95+ for every real detection. Root cause:
+  none of the distractor kinds are tall/portrait-shaped (KK is a full A4
+  page, ~620×876), so edge-to-edge training never covered that aspect
+  ratio. Net effect of this round: two confident false positives fixed,
+  one much weaker one introduced. Left undone for now rather than chasing
+  a fourth round (diminishing returns / whack-a-mole risk) — a
+  tall/portrait-page distractor kind would likely close it if revisited.

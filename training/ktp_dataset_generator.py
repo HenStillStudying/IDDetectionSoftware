@@ -367,11 +367,28 @@ def render_distractor() -> Image.Image:
 
 # ─── Scene Composer ───────────────────────────────────────────────────────────
 
+# False-positive testing found a card-shaped, KTP-palette look-alike still
+# fooled the detector specifically when it filled the *entire* frame with no
+# rotation and no background margin — an "edge-to-edge, flat scan/tight crop"
+# framing that neither compose_scene nor compose_negative_scene ever
+# produced before (every prior example, positive or negative, always had
+# some background visible and some rotation), so the model never learned
+# what a true positive looks like in that framing either, only what a false
+# positive looks like. Reproduced with two independent look-alikes (a
+# fictional blue-header mockup and a fictional SIM/driver's-license mockup)
+# before concluding it was a scene-composition gap rather than anything
+# content-specific.
+EDGE_TO_EDGE_PROB = 0.15
+
+
 def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
     """
     Places the KTP card onto a random background scene.
     Returns (scene_image, bbox_xyxy) where bbox is the card's position.
     """
+    if random.random() < EDGE_TO_EDGE_PROB:
+        return _compose_edge_to_edge(ktp_img)
+
     scene = Image.new("RGB", (IMG_W, IMG_H),
                       color=(random.randint(30,200),
                              random.randint(30,200),
@@ -403,6 +420,22 @@ def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
     return scene, (x1, y1, x2, y2)
 
 
+def _compose_edge_to_edge(subject: Image.Image) -> tuple[Image.Image, tuple]:
+    """Fills the entire frame with `subject` (near-zero rotation, no
+    background margin) — mimics a flat scan or a photo cropped tight to the
+    card's edges. Returns the same (scene_image, bbox_xyxy) shape as
+    compose_scene, with bbox always the full frame.
+    """
+    angle = random.uniform(-3, 3)
+    rotated = subject.convert("RGBA").rotate(angle, expand=True).resize((IMG_W, IMG_H))
+    scene = Image.new("RGB", (IMG_W, IMG_H),
+                      color=(random.randint(30, 200),
+                             random.randint(30, 200),
+                             random.randint(30, 200)))
+    scene.paste(rotated, (0, 0), mask=rotated)
+    return scene, (0, 0, IMG_W, IMG_H)
+
+
 def compose_negative_scene() -> Image.Image:
     """Builds a background-only scene with no KTP present — either a plain
     background, or a background with a non-KTP distractor object placed on
@@ -419,6 +452,10 @@ def compose_negative_scene() -> Image.Image:
         return scene  # plain background, nothing placed on it
 
     distractor = render_distractor()
+
+    if random.random() < EDGE_TO_EDGE_PROB:
+        return _compose_edge_to_edge(distractor)[0]  # bbox unused — this stays a negative
+
     angle = random.uniform(-15, 15)
     rotated = distractor.rotate(angle, expand=True)
 
