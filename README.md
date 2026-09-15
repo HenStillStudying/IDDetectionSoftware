@@ -210,18 +210,30 @@ each fixed and each covered by a regression test.
   decade-old zlib 1.2.3 build that's likely missing exports modern cuDNN 9.5
   expects — no modern replacement was found (conda-forge's zlib doesn't ship
   that DLL name/ABI at all). Reverted to CPU for reliability.
-  **This is very likely a Windows-only problem.** cuDNN links via standard
-  versioned `.so` files on Linux, not Windows' `LoadLibrary`/`GetProcAddress`
-  mechanism — the actual deployment target (a Linux container) probably
-  doesn't hit this at all, and GPU could plausibly be a large (5-20x) win on
-  top of what the CPU `small`-tier switch already gave us. Unconfirmed:
-  this dev machine has no WSL2/Docker installed to test a real Linux+CUDA
-  environment locally, and confirming via a cloud GPU instance is on hold
-  pending the deployment-platform decision. **Re-test this first** once a
-  Linux target exists, before spending effort on other latency levers
-  (ONNX/TensorRT export, quantization, a custom lightweight recognizer) —
-  it's the single biggest lever if it pans out and costs no new code, just
-  the right OS. Other remaining CPU-only levers if GPU doesn't pan out: an
+  **This is very likely a Windows-only problem, partially confirmed.** cuDNN
+  links via standard versioned `.so` files on Linux, not Windows'
+  `LoadLibrary`/`GetProcAddress` mechanism, so the deployment target (a Linux
+  container) probably doesn't hit this at all. WSL2 + Docker Desktop with
+  `--gpus all` was installed on this dev machine specifically to test this:
+  GPU passthrough into a real Linux container works cleanly (`nvidia-smi`
+  runs fine inside one), and the two missing-dependency errors hit along the
+  way (`libgomp.so.1`, `setuptools`) were both mundane one-line apt/pip fixes
+  — nothing resembling Windows' `zlibwapi.dll` ABI mismatch. That's
+  meaningfully supportive of the hypothesis. What's still unconfirmed: a
+  full `PaddleOCR()` instantiation with GPU never completed — the
+  `paddlepaddle-gpu` wheel download (~700MB, from a Chinese CDN) was
+  consistently very slow (as low as 341 kB/s, 1.5-hour ETAs) through Docker
+  Desktop's WSL2 network path and corrupted mid-download twice, which also
+  filled the host disk once (recovered, unrelated to this project) and
+  burned significant time without a clean result. This looks like a
+  network-path/environment problem specific to Docker-Desktop-on-Windows,
+  not a new technical blocker — but it means the actual cuDNN-loads-on-Linux
+  question is still open. **Re-test this on an actual cloud Linux GPU
+  instance** once a deployment platform is chosen — better network path to
+  that CDN, and it's the real target environment rather than a local proxy
+  for it — before spending effort on other latency levers (ONNX/TensorRT
+  export, quantization, a custom lightweight recognizer). Other remaining
+  CPU-only levers if GPU doesn't pan out: an
   older pre-3.x paddlepaddle that might restore working MKL-DNN on CPU
   (real risk: probably forces a paddleocr 2.x downgrade too, a different
   API), or `PP-OCRv6_tiny_*` if its accuracy risks turn out to be
