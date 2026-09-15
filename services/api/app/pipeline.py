@@ -22,6 +22,16 @@ from ktp_interfaces import DetectionService, OcrService
 
 LOW_CONFIDENCE_THRESHOLD = 0.6
 
+# A real phone photo runs several times larger than the 960x720 synthetic
+# images this project was benchmarked against — measured directly, that
+# gap alone took a real request from ~4s to ~13s, since both YOLO detection
+# and PaddleOCR's stages (running on the detected crop) scale with image
+# area. 1600px keeps the card's smallest legible text (a 16-digit NIK)
+# comfortably readable after the crop while cutting a typical 3000-4000px
+# phone photo's pixel count by roughly 4-6x. Only ever shrinks — an
+# already-small upload is untouched.
+MAX_UPLOAD_DIMENSION = 1600
+
 
 class KtpExtractionPipeline:
     def __init__(self, detection_service: DetectionService, ocr_service: OcrService):
@@ -35,6 +45,7 @@ class KtpExtractionPipeline:
             image = Image.open(io.BytesIO(image_bytes))
             image.load()
             image = image.convert("RGB")
+            image = _downscale_if_needed(image)
         except (UnidentifiedImageError, OSError):
             return KtpExtractionResult(
                 status=ExtractionStatus.INVALID_IMAGE,
@@ -94,3 +105,18 @@ class KtpExtractionPipeline:
 
 def _elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 2)
+
+
+def _downscale_if_needed(image: Image.Image, max_dimension: int = MAX_UPLOAD_DIMENSION) -> Image.Image:
+    """Shrinks an oversized upload to at most `max_dimension` on its longer
+    side, preserving aspect ratio. A no-op when the image is already within
+    that bound, so a small upload never gets needlessly re-encoded.
+    """
+    width, height = image.size
+    longest_side = max(width, height)
+    if longest_side <= max_dimension:
+        return image
+
+    scale = max_dimension / longest_side
+    new_size = (round(width * scale), round(height * scale))
+    return image.resize(new_size, Image.LANCZOS)

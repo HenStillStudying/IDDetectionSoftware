@@ -312,8 +312,25 @@ than redesigning the generator off a single sample.
   scale with image area. Measured directly: 3.6-4.2s across three synthetic
   eval images vs. 13.1s for the one real photo tested, through the same
   code path (`KtpExtractionPipeline`, full pipeline including detection +
-  the OCR service call). Not yet addressed — downscaling large uploads
-  before detection is the obvious next lever, untried so far.
+  the OCR service call).
+  **Fixed, partially**: `pipeline.py` now downscales any upload wider or
+  taller than 1600px (preserving aspect ratio, `Image.LANCZOS`) before
+  detection ever sees it — both YOLO and the OCR crop that comes out of
+  detection shrink with it. 1600px was picked to keep a 16-digit NIK
+  comfortably legible after the crop. Measured on a synthetic image
+  upscaled to 3120×2340 to stand in for a real phone photo (the real photo
+  itself was already deleted per the real-KTP testing protocol, so this
+  isn't the exact same input): **9.1s → 6.1s, about 33% faster**, on
+  otherwise identical input. NIK — the field that matters most — stayed
+  correct with or without the resize. One accuracy caveat found on that
+  same test, though: `provinsi` (a small header field, lowest-detail text
+  on the card) came back empty with downscaling but was read correctly
+  without it. Given the test image was itself upscaled via interpolation
+  before being downscaled back down — not a real camera photo's actual
+  detail — this isn't a clean read on the real-world accuracy cost, but
+  it's a real observed difference on the one test run, not nothing. Worth
+  validating against an actual high-resolution real photo before fully
+  trusting the 1600px threshold; untried so far.
 
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
