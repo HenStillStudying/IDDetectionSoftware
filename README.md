@@ -302,35 +302,39 @@ than redesigning the generator off a single sample.
   outward by a small margin before warping. All covered by regression
   tests (`services/ocr/tests/test_field_labels.py`,
   `test_parsing.py`).
-- **OCR latency is ~3-4s/request on small synthetic images, but ~13s on a
-  real phone photo — CPU only, and this gap was never measured until now.**
-  That 3-4s figure was only ever benchmarked against the 960×720
-  synthetic scenes this project generates; a real phone photo is much
-  higher-resolution (the real KTP tested above produced a card bounding box
-  alone running to 1571×1136, so the source photo is at least that large),
-  and both YOLO detection and PaddleOCR's text detection/recognition stages
-  scale with image area. Measured directly: 3.6-4.2s across three synthetic
-  eval images vs. 13.1s for the one real photo tested, through the same
-  code path (`KtpExtractionPipeline`, full pipeline including detection +
-  the OCR service call).
-  **Fixed, partially**: `pipeline.py` now downscales any upload wider or
-  taller than 1600px (preserving aspect ratio, `Image.LANCZOS`) before
-  detection ever sees it — both YOLO and the OCR crop that comes out of
-  detection shrink with it. 1600px was picked to keep a 16-digit NIK
-  comfortably legible after the crop. Measured on a synthetic image
-  upscaled to 3120×2340 to stand in for a real phone photo (the real photo
-  itself was already deleted per the real-KTP testing protocol, so this
-  isn't the exact same input): **9.1s → 6.1s, about 33% faster**, on
-  otherwise identical input. NIK — the field that matters most — stayed
-  correct with or without the resize. One accuracy caveat found on that
-  same test, though: `provinsi` (a small header field, lowest-detail text
-  on the card) came back empty with downscaling but was read correctly
-  without it. Given the test image was itself upscaled via interpolation
-  before being downscaled back down — not a real camera photo's actual
-  detail — this isn't a clean read on the real-world accuracy cost, but
-  it's a real observed difference on the one test run, not nothing. Worth
-  validating against an actual high-resolution real photo before fully
-  trusting the 1600px threshold; untried so far.
+- **OCR latency is ~3-4s/request on small synthetic images; a real phone
+  photo runs slower but the exact number turned out to be unreliable —
+  history below, corrected after re-testing.** First measurement: one real
+  photo through the live system came back at 13.1s, ~3x the 3.6-4.2s seen
+  on 960×720 synthetic images, plausibly explained by real photos being
+  higher-resolution (both YOLO and PaddleOCR scale with image area).
+  Added `_downscale_if_needed` to `pipeline.py`: shrinks any upload wider
+  or taller than 1600px (preserving aspect ratio) before detection, a
+  no-op below that. Measured on a synthetic image upscaled to 3120×2340 to
+  stand in for a real photo: 9.1s → 6.1s, ~33% faster, NIK unaffected, but
+  `provinsi` came back empty with downscaling on that one run — flagged at
+  the time as possibly an artifact of the test's artificial
+  upscale-then-downscale methodology rather than a real accuracy cost.
+  **Re-validated against the actual real photo when it was re-shared**:
+  turned out to be exactly 1600×1200 — at the threshold, so the downscale
+  fix is a no-op for it. More importantly, the original 13.1s didn't
+  reproduce at all: four separate re-measurements of the *same* photo
+  (direct in-process call, live system cold request, live system warm
+  request, live system started with the exact `--reload` flag the original
+  test used) all landed in a tight 7.0-8.0s band — including one run with
+  no code changes and matching startup flags. `provinsi` extracted
+  correctly (0.97-0.99 confidence) in every one of these real-photo runs,
+  confirming that miss really was a test-methodology artifact, not a real
+  accuracy cost. Conclusion: the original 13.1s was most likely a one-off
+  anomaly (system load or similar), not a reproducible baseline, so the
+  "33% faster" synthetic figure doesn't have a confirmed real-world problem
+  to solve behind it yet. The downscale fix itself stays in (it's a
+  reasonable no-op-when-unneeded safeguard for genuinely huge uploads,
+  e.g. a raw 4000px camera photo not pre-compressed by something like
+  WhatsApp), but its benefit is unproven on real data, and the threshold
+  (1600px) is left unchanged rather than lowered to force it to engage on
+  photos like this one — that would trade unproven accuracy risk for a
+  speed problem that hasn't been confirmed to exist.
 
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
