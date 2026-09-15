@@ -243,6 +243,36 @@ DISTRACTOR_TITLES = [
     "ACME CORP", "LOYALTY CLUB", "ACCESS PASS",
 ]
 
+# A held-out test found the "card" distractor above wasn't enough: a mockup
+# using KTP's *exact* header-blue/cream-body/gold-emblem palette (but
+# different title, labels, and content) still fooled the retrained model at
+# ~0.96 confidence — it had learned to key on color scheme + layout rather
+# than actual content. These distractors deliberately reuse that palette
+# (jittered slightly, and one exact match) with a photo box and label/value
+# rows, but non-KTP titles and field labels, so the model can't shortcut on
+# color alone.
+KTP_PALETTE_HEADER_COLORS = [
+    (30, 60, 140),    # exact KTP header blue
+    (35, 70, 150),
+    (25, 55, 130),
+    (40, 65, 145),
+]
+KTP_PALETTE_BODY_COLORS = [
+    (240, 235, 220), (235, 240, 235), (245, 235, 225), (230, 230, 235),
+]
+COLORED_ID_TITLES = [
+    ("STATE OF EXAMPLIA", "DRIVER LICENSE"),
+    ("NORTHFIELD COUNTY", "RESIDENT CARD"),
+    ("UNION REPUBLIC", "CITIZEN CARD"),
+    ("PORT AUTHORITY", "WORKER PERMIT"),
+    ("CENTRAL BUREAU", "IDENTITY CARD"),
+]
+COLORED_ID_LABELS = [
+    "License No", "Full Name", "Date of Birth", "Address", "Class",
+    "Expires", "Issued", "Permit No", "Nationality", "Sex", "Height",
+    "Eyes", "Restrictions", "Card No", "Valid From", "Valid To",
+]
+
 
 def _random_words(n: int) -> str:
     return " ".join(fake.word() for _ in range(n)).upper()
@@ -253,7 +283,7 @@ def render_distractor() -> Image.Image:
     hard negative for detection training. Returns an RGBA image so it can
     be rotated/pasted onto a scene the same way render_ktp()'s output is.
     """
-    kind = random.choice(["card", "photo_panel", "receipt"])
+    kind = random.choice(["card", "photo_panel", "receipt", "colored_id_card"])
 
     if kind == "card":
         w, h = random.randint(380, 700), random.randint(220, 440)
@@ -279,6 +309,37 @@ def render_distractor() -> Image.Image:
             y += 22
             if y > h - 20:
                 break
+        return img
+
+    if kind == "colored_id_card":
+        w, h = 640, 400
+        bg = random.choice(KTP_PALETTE_BODY_COLORS)
+        img = Image.new("RGBA", (w, h), (*bg, 255))
+        draw = ImageDraw.Draw(img)
+
+        header_color = random.choice(KTP_PALETTE_HEADER_COLORS)
+        draw.rectangle([(0, 0), (w, 60)], fill=header_color)
+        draw.rectangle([(0, h - 6), (w, h)], fill=header_color)
+        if random.random() < 0.7:
+            draw.rectangle([(8, 4), (54, 56)], fill=(200, 170, 30))
+            draw.text((31, 30), random.choice("ABCNSU"),
+                       font=ImageFont.truetype(FONT_BOLD, 22), fill=header_color, anchor="mm")
+
+        line1, line2 = random.choice(COLORED_ID_TITLES)
+        draw.text((w // 2, 20), line1, font=ImageFont.truetype(FONT_BOLD, 15), fill="white", anchor="mm")
+        draw.text((w // 2, 40), line2, font=ImageFont.truetype(FONT_REG, 12), fill=(200, 220, 255), anchor="mm")
+
+        draw.rectangle([(10, 70), (135, 220)], fill=(180, 180, 180), outline=(120, 120, 120))
+        draw.text((72, 145), "PHOTO", font=ImageFont.truetype(FONT_REG, 9), fill=(80, 80, 80), anchor="mm")
+
+        labels = random.sample(COLORED_ID_LABELS, k=random.randint(5, 8))
+        fl = ImageFont.truetype(FONT_REG, 9)
+        fv = ImageFont.truetype(FONT_BOLD, 9)
+        y = 78
+        for label in labels:
+            draw.text((145, y), label, font=fl, fill=(80, 80, 80))
+            draw.text((250, y), f": {_random_words(random.randint(1, 3))}", font=fv, fill=(10, 10, 10))
+            y += 17
         return img
 
     if kind == "photo_panel":

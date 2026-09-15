@@ -352,3 +352,24 @@ than redesigning the generator off a single sample.
   `evaluate_pipeline.py` giving identical per-field numbers to before), and
   all 12/12 false-positive tests now pass, including both that previously
   failed.
+  A follow-up adversarial test then found the fix was shallower than it
+  looked: a mockup deliberately reusing KTP's *exact* palette (header/footer
+  blue, cream body, gold emblem square) but different title/labels/content
+  still triggered a false detection at 0.97 confidence — the model had
+  learned to key on color scheme + layout, not actual content. Added a
+  second distractor kind (`colored_id_card` in `ktp_dataset_generator.py`)
+  that reuses KTP's palette (jittered, plus an exact match) with a photo box
+  and label/value rows, but non-KTP titles and field labels, and retrained
+  again — mAP50/OCR accuracy again unchanged. Result is a genuine partial
+  fix, not a full one: the realistic case (the look-alike card rotated and
+  placed on a background, the way an actual phone photo would look) now
+  correctly passes, but an unrealistic edge case — the same look-alike
+  filling the entire frame edge-to-edge with zero rotation and no background
+  margin — still fires, though confidence dropped meaningfully (0.97 →
+  0.84). Likely cause: `compose_negative_scene` (and `compose_scene` for
+  positives) always places its subject rotated with background margin, so
+  neither positives nor negatives ever train the model on an edge-to-edge,
+  unrotated frame — an out-of-distribution gap in how training scenes are
+  composed, not specifically a color/content issue. Left undone for now:
+  adding edge-to-edge/unrotated placements to scene composition (for both
+  positives and negatives) would likely close this.
