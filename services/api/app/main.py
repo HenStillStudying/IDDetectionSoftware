@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from arq.jobs import Job, JobStatus
 from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from ktp_schema import ExtractionStatus
 
@@ -15,6 +17,17 @@ app = FastAPI(
     version="0.1.0",
     description="Detects an Indonesian KTP card in a photo and extracts its fields via OCR.",
 )
+
+_STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/demo")
+async def demo() -> FileResponse:
+    """A plain upload page for manual testing — drag/drop a photo, see the
+    extracted fields rendered instead of raw JSON. Not authenticated (same
+    as the rest of this dev-mode API); don't expose this beyond localhost.
+    """
+    return FileResponse(_STATIC_DIR / "demo.html")
 
 # Used by the sync endpoint only. The async endpoints enqueue work onto
 # Redis instead — see app/worker.py for the process that actually runs the

@@ -36,6 +36,12 @@ def test_health(client):
     assert resp.json() == {"status": "ok"}
 
 
+def test_demo_page_is_served(client):
+    resp = client.get("/demo")
+    assert resp.status_code == 200
+    assert b"<title>KTP Identification" in resp.content
+
+
 def test_extract_with_stub_pipeline_returns_low_confidence(client):
     resp = client.post(
         "/v1/ktp/extract",

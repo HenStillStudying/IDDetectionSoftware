@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>KTP Identification — Demo</title>
+<style>
+  :root {
+    --blue: #1e3c8c;
+    --bg: #f4f5f7;
+    --card-bg: #ffffff;
+    --border: #dde1e8;
+    --text: #1a1d23;
+    --muted: #6b7280;
+    --ok: #1a7f37;
+    --warn: #b45309;
+    --err: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 16px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--card-bg);
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone.dragover { border-color: var(--blue); background: #eef1fb; }
+  .dropzone p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+  .dropzone .icon { font-size: 32px; }
+  input[type="file"] { display: none; }
+
+  .preview { margin-top: 16px; display: none; }
+  .preview img {
+    max-width: 100%;
+    max-height: 260px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: block;
+    margin: 0 auto;
+  }
+
+  .actions { margin-top: 16px; display: flex; gap: 8px; justify-content: center; }
+  button {
+    font: inherit;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .btn-primary { background: var(--blue); color: white; }
+  .btn-primary:disabled { background: #9aa5c9; cursor: not-allowed; }
+  .btn-secondary { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); }
+
+  .status { margin-top: 20px; text-align: center; color: var(--muted); font-size: 14px; }
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .result { margin-top: 24px; display: none; }
+  .banner {
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .banner.ok { background: #eafaf0; color: var(--ok); }
+  .banner.warn { background: #fef6e7; color: var(--warn); }
+  .banner.err { background: #fdecea; color: var(--err); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+  th, td { text-align: left; padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  th { color: var(--muted); font-weight: 600; width: 35%; }
+  td.value { font-weight: 600; }
+  td.missing { color: var(--muted); font-style: italic; font-weight: 400; }
+  .conf { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+
+  .meta { display: flex; gap: 20px; margin-top: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .meta b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>KTP Identification — Demo</h1>
+  <p class="subtitle">Upload a photo of an Indonesian KTP card to run it through detection + OCR extraction.</p>
+
+  <div class="dropzone" id="dropzone">
+    <div class="icon">📇</div>
+    <p><strong>Click to choose a photo</strong> or drag one here</p>
+    <input type="file" id="fileInput" accept="image/*" />
+  </div>
+
+  <div class="preview" id="preview">
+    <img id="previewImg" alt="preview" />
+  </div>
+
+  <div class="actions" id="actions" style="display:none;">
+    <button class="btn-primary" id="submitBtn">Extract fields</button>
+    <button class="btn-secondary" id="resetBtn">Choose another</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const preview = document.getElementById('preview');
+const previewImg = document.getElementById('previewImg');
+const actions = document.getElementById('actions');
+const statusEl = document.getElementById('status');
+const resultEl = document.getElementById('result');
+const submitBtn = document.getElementById('submitBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+let selectedFile = null;
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+function handleFile(file) {
+  selectedFile = file;
+  const url = URL.createObjectURL(file);
+  previewImg.src = url;
+  preview.style.display = 'block';
+  actions.style.display = 'flex';
+  resultEl.style.display = 'none';
+  statusEl.innerHTML = '';
+}
+
+resetBtn.addEventListener('click', () => {
+  selectedFile = null;
+  fileInput.value = '';
+  preview.style.display = 'none';
+  actions.style.display = 'none';
+  resultEl.style.display = 'none';
+  statusEl.innerHTML = '';
+});
+
+const FIELD_LABELS = {
+  nik: 'NIK', nama: 'Nama', tempat_lahir: 'Tempat Lahir', tanggal_lahir: 'Tanggal Lahir',
+  jenis_kelamin: 'Jenis Kelamin', golongan_darah: 'Golongan Darah', alamat: 'Alamat',
+  rt_rw: 'RT/RW', kelurahan_desa: 'Kelurahan/Desa', kecamatan: 'Kecamatan', agama: 'Agama',
+  status_perkawinan: 'Status Perkawinan', pekerjaan: 'Pekerjaan', kewarganegaraan: 'Kewarganegaraan',
+  berlaku_hingga: 'Berlaku Hingga', provinsi: 'Provinsi', kota_kabupaten: 'Kota/Kabupaten',
+};
+
+submitBtn.addEventListener('click', async () => {
+  if (!selectedFile) return;
+  submitBtn.disabled = true;
+  statusEl.innerHTML = '<span class="spinner"></span>Processing — this can take several seconds on CPU...';
+  resultEl.style.display = 'none';
+
+  const form = new FormData();
+  form.append('file', selectedFile);
+
+  try {
+    const resp = await fetch('/v1/ktp/extract', { method: 'POST', body: form });
+    const data = await resp.json();
+    render(data, resp.status);
+  } catch (err) {
+    statusEl.innerHTML = '';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = `<div class="banner err">Request failed: ${err}</div>`;
+  } finally {
+    submitBtn.disabled = false;
+    statusEl.innerHTML = '';
+  }
+});
+
+function render(data, httpStatus) {
+  resultEl.style.display = 'block';
+
+  if (data.status === 'no_card_detected') {
+    resultEl.innerHTML = `<div class="banner err">No KTP card detected in this image.</div>`;
+    return;
+  }
+  if (data.status === 'invalid_image') {
+    resultEl.innerHTML = `<div class="banner err">Could not read this file as an image.</div>`;
+    return;
+  }
+
+  const bannerClass = data.status === 'ok' ? 'ok' : 'warn';
+  const bannerText = data.status === 'ok'
+    ? `Extraction complete — overall confidence ${(data.overall_confidence * 100).toFixed(0)}%`
+    : `Low confidence extraction (${(data.overall_confidence * 100).toFixed(0)}%) — review before trusting`;
+
+  let rows = '';
+  for (const [key, label] of Object.entries(FIELD_LABELS)) {
+    const field = (data.fields || {})[key] || { value: null, confidence: 0 };
+    if (field.value) {
+      rows += `<tr><th>${label}</th><td class="value">${escapeHtml(field.value)}<span class="conf">${(field.confidence * 100).toFixed(0)}%</span></td></tr>`;
+    } else {
+      rows += `<tr><th>${label}</th><td class="missing">not extracted</td></tr>`;
+    }
+  }
+
+  const nikValid = data.nik_validation ? (data.nik_validation.is_valid ? '✅ valid' : '⚠️ ' + (data.nik_validation.errors || []).join(', ')) : '—';
+  const warnings = (data.warnings || []).length ? `<div class="banner warn">${data.warnings.map(escapeHtml).join('<br>')}</div>` : '';
+
+  resultEl.innerHTML = `
+    <div class="banner ${bannerClass}">${bannerText}</div>
+    ${warnings}
+    <table>${rows}</table>
+    <div class="meta">
+      <span><b>NIK check:</b> ${nikValid}</span>
+      <span><b>Processing time:</b> ${(data.processing_time_ms / 1000).toFixed(1)}s</span>
+      <span><b>Detection confidence:</b> ${data.bounding_box ? (data.bounding_box.detection_confidence * 100).toFixed(0) + '%' : '—'}</span>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
