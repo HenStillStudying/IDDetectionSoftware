@@ -214,9 +214,28 @@ generator (and this schema) combine them into one — a structural,
 schema-level difference deliberately left unfixed until proper research
 into regional/historical KTP layout variation is done (see below), rather
 than redesigning the generator off a single sample.
+- **Re-tested the same real KTP end-to-end through the live system** (all
+  four real processes — Redis, OCR service, API, worker — driven through
+  the API's Swagger UI at `/docs`, not `evaluate_pipeline.py` or a direct
+  in-process pipeline call, so this is the first time the deployed service
+  itself was validated against a real photo rather than just its internal
+  pipeline). This was after the detection hard-negative retraining rounds
+  and the OCR fixes above. Detection: 0.91 confidence, correctly rectified.
+  OCR: 15 of 17 fields correct again, NIK valid, overall confidence 0.90.
+  One new failure mode found: `tanggal_lahir` came back empty because the
+  date OCR'd with *both* separators degraded ("13-032007" — no separator at
+  all between month and year, not just a dropped hyphen like the
+  previously-fixed case), so `split_tempat_tanggal_lahir` couldn't locate
+  the date pattern at all and left the whole unsplit string in
+  `tempat_lahir` instead. Not yet fixed — the existing date-splitting regex
+  in `parsing.py` handles a missing separator in one place, not a fully
+  concatenated month+year. The other two misses are the already-documented
+  word-spacing artifact (a multi-word value losing its spaces, content
+  still correct) — not a new issue.
 - Trained purely on synthetic data — has now seen exactly one real photo
-  (see above). Broader real-world validation (more samples, different
-  regions/eras/lighting) is still needed before this is trustworthy.
+  (see above), tested twice. Broader real-world validation (more samples,
+  different regions/eras/lighting) is still needed before this is
+  trustworthy.
 - **Researched KTP-el layout variation, scoped to the current electronic-KTP
   era only (~2011-present) — the older pre-chip format is obsolete and out
   of scope.** Finding: KTP-el is governed by a single national specification
