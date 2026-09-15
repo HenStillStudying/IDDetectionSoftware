@@ -294,9 +294,39 @@ than redesigning the generator off a single sample.
   no directional preference) regressed `nik` 100% → 93.3% by picking the
   wrong side of a near-tie in one case; fixed by preferring at-or-above
   candidates outright rather than nearest-by-distance, confirmed back to
-  100%. All 44 tests still pass. Worth a second real card to confirm this
-  doesn't affect real-KTP matching (the anchor logic is new and only
-  motivated by this synthetic-generator artifact) — untried so far.
+  100%. All 44 tests still pass.
+  **The flagged risk was real — re-testing against the real card
+  (via the new `/demo` upload page) surfaced a regression the very
+  next test.** `berlaku_hingga` came back mangled ("12-06 20203" instead of
+  "SEUMUR HIDUP"), the exact issue-date-near-the-signature contamination a
+  gap-based guard had already fixed once before. Root cause: the
+  at-or-above anchor preference was filtering the *entire* candidate list
+  by closeness to a single anchor, before the existing gap-based walk got
+  a chance to run — on this row, the stray issuance date ("12-06-2024")
+  happened to sit above the label while the true value sat almost exactly
+  level with it, so the anchor rule picked the stray box and discarded the
+  correct one outright, even though the gap-based logic (checking x-distance,
+  not y-position) would have excluded that same stray box correctly on its
+  own. Fixed by narrowing the anchor logic: only de-duplicate candidates
+  that start at nearly the *same x* as each other (the synthetic
+  generator's row-bleed signature — a fixed value column means a wrong
+  next-row candidate lands at virtually the same x1 as the correct one),
+  leaving genuinely far-apart candidates (the real card's stray-box
+  signature) untouched for the original gap-based walk to handle as
+  before. Re-verified: `berlaku_hingga` back to correct, golongan_darah
+  gains held (confirmed via the synthetic eval set unchanged from the
+  numbers above). Separately, while re-testing the real card end to end,
+  found `golongan_darah` had also regressed to `None` — unrelated to any
+  of the above, and present since well before this session: OCR read the
+  blood-type letter "O" as the digit "0", and `split_jenis_kelamin_gol_darah`'s
+  `[ABO]`-only pattern didn't recognize a trailing "0" as a blood type at
+  all. Fixed by accepting a trailing "0" and normalizing it to "O" before
+  snapping to the known `BLOODS` values (blood type is never actually a
+  digit, so this is unambiguous). **Result: all 17 fields now correct on
+  the real card, the best result yet (previously 15/17)**, overall
+  confidence 0.96. 4 regression tests added across this fix (2 field-match
+  cases with real-card coordinates, 1 for the digit/letter blood-type
+  confusion, all passing); 50 tests total.
 - **Perspective correction, not just rotation, is now implemented** —
   `YoloDetectionService` finds the card's 4 corners (contour + `approxPolyDP`)
   and applies a proper `warpPerspective`, falling back to the old

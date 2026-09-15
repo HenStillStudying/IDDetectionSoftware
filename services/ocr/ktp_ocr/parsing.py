@@ -51,15 +51,23 @@ def split_tempat_tanggal_lahir(value: str) -> tuple[str | None, str | None]:
 
 
 def split_jenis_kelamin_gol_darah(value: str) -> tuple[str | None, str | None]:
-    """'LAKI-LAKI   Gol. Darah: A' -> ('LAKI-LAKI', 'A')."""
+    """'LAKI-LAKI   Gol. Darah: A' -> ('LAKI-LAKI', 'A').
+
+    Matches a trailing '0' (digit zero) as well as 'O' (letter) — a real
+    KTP test showed OCR misreading the blood-type letter "O" as the digit
+    "0", which an ['ABO']-only pattern wouldn't recognize as a blood type
+    at all, silently dropping it. Blood type is never actually a digit, so
+    normalizing '0' to 'O' before snapping to the known BLOODS values is
+    safe.
+    """
     gol_match = re.search(r"\bgol\b", value, re.IGNORECASE)
     gender_part = value[: gol_match.start()] if gol_match else value
     blood_part = value[gol_match.start():] if gol_match else ""
 
     gender = gender_part.strip(" .:") or None
 
-    blood_match = re.search(r"([ABO]{1,2})\s*$", blood_part.upper())
-    blood = snap_to_enum(blood_match.group(1), BLOODS) if blood_match else None
+    blood_match = re.search(r"([AB0O]{1,2})\s*$", blood_part.upper())
+    blood = snap_to_enum(blood_match.group(1).replace("0", "O"), BLOODS) if blood_match else None
     return (gender, blood)
 
 

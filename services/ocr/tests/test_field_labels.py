@@ -78,6 +78,25 @@ def test_find_same_row_value_excludes_next_row_value_bleeding_upward():
     assert value == "PEREMPUAN Gol. Darah: AB"
 
 
+def test_find_same_row_value_keeps_far_away_stray_box_excluded():
+    # Coordinates from a real KTP: a stray issuance date near the signature
+    # ("12-06-2024") sits far to the right of "Berlaku Hingga"'s true value
+    # ("SEUMURHIDUP") but still clears the row-overlap check by y-range
+    # alone. An earlier version of the same-column dedup fix (which
+    # filtered *every* candidate by closeness to a single directional
+    # anchor, not just same-x1 ties) wrongly discarded the correct value in
+    # favor of this stray box; the gap-based walk further down already
+    # excludes it correctly on its own and must not be short-circuited.
+    label = _line("Berlaku Hinoga", x1=61, y1=817, x2=325, y2=870)  # "Hingga" misread
+    own_value = _line("SEUMURHIDUP", x1=398, y1=828, x2=703, y2=865)
+    stray_date = _line("12-06-2024", x1=1260, y1=794, x2=1441, y2=835)
+
+    result = find_same_row_value([label, own_value, stray_date], label)
+    assert result is not None
+    value, _ = result
+    assert value == "SEUMURHIDUP"
+
+
 def test_find_same_row_value_prefers_above_over_nearest_on_near_tie():
     # Coordinates from a real synthetic-card failure: NIK's own value sits
     # slightly *above* the NIK label's center, and Nama's value (the next

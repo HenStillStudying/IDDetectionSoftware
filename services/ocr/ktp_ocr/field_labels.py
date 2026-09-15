@@ -122,8 +122,8 @@ def find_same_row_value(lines: list[TextLine], label_line: TextLine) -> tuple[st
     since a row can carry more than one — "Jenis Kelamin" has separate boxes
     for the gender, the literal "Gol. Darah" text, and the blood-type letter.
 
-    Three guards now, the third found necessary on the synthetic generator's
-    tighter row spacing:
+    Four guards now, the third and fourth found necessary on the synthetic
+    generator's tighter row spacing:
     - Uses the label's *left* edge as the cutoff for "to the right", not its
       right edge — a garbled OCR read can inflate a label's own box width
       (e.g. "Status Perkawinan" misread with trailing noise), which would
@@ -134,24 +134,30 @@ def find_same_row_value(lines: list[TextLine], label_line: TextLine) -> tuple[st
       diagonal texture) gets OCR'd as spurious, unusually tall text
       fragments that can otherwise satisfy the row-overlap check and
       contaminate the result.
-    - Anchors on the qualifying candidate that best matches the label's row,
-      then discards any other candidate that isn't itself close to that
-      anchor. An all-caps value's OCR-detected box reaches full cap-height
-      while its (usually mixed-case) label doesn't, so a value's box
-      consistently starts a bit *above* the y its label was drawn at —
-      confirmed via raw OCR geometry dumps to be large enough, relative to
-      the synthetic generator's row spacing, that a label's overlap check
-      alone sometimes also (wrongly) qualifies the *next* row's value. Two
-      real cases this caught: "Jenis Kelamin" concatenating "Alamat"'s value
-      too (silently breaking golongan_darah's end-anchored regex), and
-      "Nama" concatenating "Tempat/Tgl Lahir"'s date. Picking the anchor by
-      pure nearest-distance isn't reliable on its own — measured cases where
-      a wrong, next-row candidate's center was marginally *closer* to the
-      label's than the true value's own (offset-above) center was, which
-      picked the wrong one. Since the true value is consistently at-or-above
-      the label rather than below it, candidates at-or-above are preferred
-      outright, with nearest-distance only as a tiebreak within that group
-      (or across all candidates if none qualify as at-or-above).
+    - Stops concatenating at the first large horizontal gap (below) — this
+      alone already correctly rejects a stray box that happens to overlap a
+      label's y-range but sits far away in x (e.g. an issuance date near the
+      signature, confirmed against a real KTP).
+    - De-duplicates candidates that start at nearly the same x as each
+      other *before* that gap-based walk. An all-caps value's OCR-detected
+      box reaches full cap-height while its (usually mixed-case) label
+      doesn't, so a value's box consistently starts a bit *above* the y its
+      label was drawn at — confirmed via raw OCR geometry dumps to be large
+      enough, relative to the synthetic generator's row spacing, that a
+      label's overlap check alone sometimes also (wrongly) qualifies the
+      *next* row's value in the same fixed value column (same x, different
+      row) as "Jenis Kelamin" concatenating "Alamat"'s value too (silently
+      breaking golongan_darah's end-anchored regex), and "Nama"
+      concatenating "Tempat/Tgl Lahir"'s date. Only same-x1 candidates are
+      deduplicated this way (kept: whichever is at-or-above the label,
+      matching the observed offset direction) — a genuinely stray box like
+      the issuance date sits at a very different x and is already excluded
+      by the gap-based walk below, untouched by this guard. An earlier
+      version of this guard filtered *all* candidates by closeness to a
+      single directional anchor rather than just same-column ties, which
+      wrongly discarded a real KTP's correct "Berlaku Hingga" value in
+      favor of that same issuance date — the gap-based walk was already
+      handling that case correctly on its own and didn't need help.
     """
     label_height = label_line.y2 - label_line.y1
     candidates = []
@@ -169,24 +175,25 @@ def find_same_row_value(lines: list[TextLine], label_line: TextLine) -> tuple[st
     if not candidates:
         return None
 
+    candidates.sort(key=lambda line: line.x1)
+
     label_center = (label_line.y1 + label_line.y2) / 2
 
     def _center(line: TextLine) -> float:
         return (line.y1 + line.y2) / 2
 
-    anchor = min(
-        candidates,
-        key=lambda line: (
-            0 if _center(line) <= label_center else 1,
-            abs(_center(line) - label_center),
-        ),
-    )
-    anchor_center = _center(anchor)
-    candidates = [
-        line for line in candidates if abs(_center(line) - anchor_center) <= label_height * MIN_ROW_OVERLAP_RATIO
-    ]
+    def _row_preference(line: TextLine) -> tuple[int, float]:
+        return (0 if _center(line) <= label_center else 1, abs(_center(line) - label_center))
 
-    candidates.sort(key=lambda line: line.x1)
+    x_tie_tolerance = label_height * 0.5
+    deduped: list[TextLine] = []
+    for line in candidates:
+        if deduped and line.x1 - deduped[-1].x1 <= x_tie_tolerance:
+            if _row_preference(line) < _row_preference(deduped[-1]):
+                deduped[-1] = line
+            continue
+        deduped.append(line)
+    candidates = deduped
 
     # Stop at the first large horizontal gap: legitimate multi-box values
     # (e.g. "Jenis Kelamin"'s gender/"Gol. Darah"/letter boxes) sit within

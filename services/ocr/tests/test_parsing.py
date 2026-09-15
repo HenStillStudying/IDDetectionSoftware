@@ -1,7 +1,22 @@
-from ktp_ocr.parsing import find_berlaku_hingga, split_rt_rw_kelurahan, split_tempat_tanggal_lahir
+from ktp_ocr.parsing import (
+    find_berlaku_hingga,
+    split_jenis_kelamin_gol_darah,
+    split_rt_rw_kelurahan,
+    split_tempat_tanggal_lahir,
+)
 from ktp_ocr.text_lines import TextLine
 
 CARD_SIZE = (640, 400)
+
+
+def test_split_jenis_kelamin_gol_darah_normal_case():
+    assert split_jenis_kelamin_gol_darah("LAKI-LAKI   Gol. Darah: A") == ("LAKI-LAKI", "A")
+
+
+def test_split_jenis_kelamin_gol_darah_with_digit_zero_misread_as_letter_o():
+    # A real KTP test showed OCR reading the blood-type letter "O" as the
+    # digit "0" instead.
+    assert split_jenis_kelamin_gol_darah("LAKILAKI Gol. Derah 0") == ("LAKILAKI", "O")
 
 
 def test_split_tempat_tanggal_lahir_with_comma():
