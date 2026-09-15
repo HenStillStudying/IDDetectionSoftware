@@ -9,7 +9,7 @@ pipeline, exposed as a backend API service.
 ```
 libs/ktp_schema/      Shared contracts: field schema, NIK validation, reference data, API result schema
 libs/ktp_interfaces/  DetectionService/OcrService contracts (implemented by services/detection and services/ocr)
-services/api/         FastAPI gateway: /v1/ktp/extract (sync) and /v1/ktp/jobs (async)
+services/api/         FastAPI gateway: /v1/ktp/extract (sync) and /v1/ktp/jobs (async, via Redis + app/worker.py)
 services/detection/   YOLOv8 card detection + contour-based deskew (YoloDetectionService), in-process
 services/ocr/         Standalone PaddleOCR microservice — its own FastAPI app, its own process
 training/              Synthetic KTP dataset generator, YOLO training script, and a ground-truth pipeline evaluator
@@ -38,22 +38,32 @@ pip install -e services/ocr                # optional — needed to run the OCR 
 pip install -r services/ocr/requirements-dev.txt
 ```
 
-## Run (two processes)
+## Run (four processes)
 
 ```bash
-# terminal 1 — OCR service
+# terminal 1 — Redis (backs the async job queue)
+docker run -d --name ktp-redis -p 6379:6379 redis:7-alpine
+
+# terminal 2 — OCR service
 cd services/ocr
 uvicorn ocr_app.main:app --port 8001
 
-# terminal 2 — API, pointed at the OCR service and the trained detector
+# terminal 3 — API, pointed at the OCR service and the trained detector
 cd services/api
 KTP_DETECTION_WEIGHTS=../../training/runs/ktp_detector/weights/best.pt \
 KTP_OCR_SERVICE_URL=http://127.0.0.1:8001 \
 uvicorn app.main:app --reload
+
+# terminal 4 — worker (processes /v1/ktp/jobs submissions)
+cd services/api
+KTP_DETECTION_WEIGHTS=../../training/runs/ktp_detector/weights/best.pt \
+KTP_OCR_SERVICE_URL=http://127.0.0.1:8001 \
+arq app.worker.WorkerSettings
 ```
 
-Without those two env vars the API still runs, using stubs for whichever
-one is missing.
+Without `KTP_DETECTION_WEIGHTS`/`KTP_OCR_SERVICE_URL` the API and worker
+still run, using stubs for whichever one is missing. Without Redis running,
+`/v1/ktp/extract` (sync) still works — only `/v1/ktp/jobs` (async) needs it.
 
 ## Train the detection model
 
@@ -96,12 +106,20 @@ change to detection or OCR, not just once.
 
 **Main API** (`services/api`):
 - `POST /v1/ktp/extract` — multipart image upload, returns extraction result synchronously
-- `POST /v1/ktp/jobs` — multipart image upload, returns a job id
-- `GET /v1/ktp/jobs/{id}` — poll job status/result
+- `POST /v1/ktp/jobs` — multipart image upload, enqueues the job onto Redis (via `arq`), returns a job id immediately
+- `GET /v1/ktp/jobs/{id}` — poll job status (`queued`/`in_progress`/`complete`) and result once done
 - `GET /health` — liveness check
 
+`/v1/ktp/jobs` requires a separate worker process actually consuming the
+queue — `arq app.worker.WorkerSettings` (see "Run" above) — the API only
+enqueues, it never runs the pipeline for async jobs itself. Job state lives
+in Redis, not the API process, so it survives an API restart (verified: a
+job submitted before an API restart is still pollable — with the same
+result — after one).
+
 Set `KTP_API_KEY` to require an `X-API-Key` header on the `/v1/*` routes
-(unset in dev, required in any shared environment).
+(unset in dev, required in any shared environment). Set `KTP_REDIS_URL` to
+point at a non-default Redis (default `redis://localhost:6379`).
 
 **OCR service** (`services/ocr`):
 - `POST /v1/ocr/extract` — multipart image (an already-rectified card), returns `KtpFields` JSON
@@ -126,6 +144,16 @@ just in-process function calls): YOLOv8n detector (trained on synthetic
 data, mAP50 0.995 — validates the plumbing, not real-world accuracy) →
 contour-based deskew → HTTP call to the OCR service → PaddleOCR
 label-matching field extraction.
+
+The async job queue is now production-grade, not the earlier in-memory
+placeholder: `/v1/ktp/jobs` enqueues onto Redis via `arq`, a separate
+worker process (`app/worker.py`) consumes it, and job state lives in Redis
+rather than API process memory — verified end-to-end across three real
+processes (API, worker, Redis), including that a job submitted before an
+API restart is still correctly pollable after one. `arq` (async-native)
+was chosen over the more common RQ specifically because RQ's worker relies
+on `os.fork()`, which doesn't exist on Windows — this dev machine needed
+the worker to run natively here too, not just in a Linux container.
 
 **Measured, not eyeballed**: `evaluate_pipeline.py` against 30
 ground-truth-labeled synthetic cards (see "Evaluate real pipeline accuracy"
