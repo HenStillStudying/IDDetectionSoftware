@@ -557,11 +557,43 @@ than redesigning the generator off a single sample.
   on Linux (confirmed directly for GPU, via a free Kaggle T4), the same
   move would plausibly resolve this too — untried, a candidate for
   revisiting alongside the GPU work rather than fighting further on
-  Windows. Quantization remains untried (real speed lever, real accuracy
-  risk, needs calibration data and full re-validation). GPU remains the
-  largest confirmed-but-unvalidated-in-production lever (see above),
-  and now also the only latency lever that's actually been proven to work
-  past Windows' native-extension issues.
+  Windows.
+  **Follow-up: confirmed on the same free Kaggle instance used for the
+  GPU test, exactly as predicted.** `paddle2onnx`'s Linux wheel (a
+  genuinely different compiled artifact from the Windows one that failed
+  — pip resolves a separate `manylinux` build) converted both
+  `PP-OCRv6_small_det` and `PP-OCRv6_small_rec` cleanly, no DLL issue at
+  all — confirming the failure really was Windows-specific, the third
+  time this exact pattern has held this session. Getting the converted
+  models actually *running* needed two more fixes along the way: PaddleX
+  defaults to expecting its library-default model name when given a
+  custom `_model_dir`, so `_model_name` must be passed alongside it or it
+  errors with a name-mismatch; and pointing at an ONNX-only directory
+  isn't sufficient by itself — `PaddleOCR(..., engine="onnxruntime")`
+  must be passed explicitly, or PaddleX still looks for native Paddle
+  format files and fails to find them.
+  **Result, on a fair same-machine comparison (forcing both to CPU
+  specifically, since the installed `onnxruntime` build was CPU-only —
+  GPU would need the separate `onnxruntime-gpu` package, untried):
+  ONNX Runtime 1065-1078ms vs. native PaddlePaddle 3641ms — roughly a
+  3.4x CPU speedup, with byte-for-byte identical recognized text between
+  the two engines (zero accuracy cost, as expected since it's the same
+  model weights, just a different execution engine).** Getting the native
+  CPU comparison running at all surfaced a bonus finding: the exact same
+  oneDNN crash this project already works around locally
+  (`enable_mkldnn=False` in `paddle_ocr_service.py`, `onednn_instruction.cc`)
+  reproduces on Linux too, just via a different specific error message —
+  confirming that particular bug is a genuine PaddlePaddle issue, not a
+  Windows-only artifact like the others found this session.
+  Quantization remains untried (real speed lever, real accuracy risk,
+  needs calibration data and full re-validation). Both GPU (native,
+  ~162ms) and now ONNX-on-CPU (~1070ms) are confirmed, real levers — GPU
+  remains the intended primary path, with ONNX-on-CPU now a much stronger
+  fallback than plain CPU (3.4x faster than what's actually running in
+  production today) if GPU access takes longer to materialize than
+  expected. Neither has been integrated into the actual codebase yet —
+  both were validated on a throwaway Kaggle notebook, not
+  `services/ocr`.
 
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
