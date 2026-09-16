@@ -487,15 +487,33 @@ def _compose_edge_to_edge(subject: Image.Image) -> tuple[Image.Image, tuple]:
     background margin) — mimics a flat scan or a photo cropped tight to the
     card's edges. Returns the same (scene_image, bbox_xyxy) shape as
     compose_scene, with bbox always the full frame.
+
+    The frame is sized to `subject`'s own (rotated) dimensions rather than
+    forced to the fixed IMG_W x IMG_H scene size — a real "cropped tight to
+    the document's edges" photo naturally has *that document's* aspect
+    ratio, not an arbitrary fixed one. A prior version forced every subject
+    into IMG_W x IMG_H regardless of its native proportions, which was a
+    mild stretch for landscape-ish subjects but a severe one for the
+    portrait-shaped `portrait_document` distractor (~0.7 width:height
+    stretched into a ~1.33 landscape frame) — later found to have caused a
+    detector retrained on it to completely fail to detect a real KTP photo
+    (0 confidence vs. 0.91 previously), despite passing every synthetic and
+    false-positive check. Root-caused via this exact distortion once a real
+    photo was available to test against again; not confirmed which
+    specific effect of the stretch caused it, but removing the distortion
+    entirely removes the risk regardless. Callers must normalize YOLO
+    coordinates against the *returned* image's own size, not the IMG_W/
+    IMG_H constants, since it now varies per call.
     """
     angle = random.uniform(-3, 3)
-    rotated = subject.convert("RGBA").rotate(angle, expand=True).resize((IMG_W, IMG_H))
-    scene = Image.new("RGB", (IMG_W, IMG_H),
+    rotated = subject.convert("RGBA").rotate(angle, expand=True)
+    w, h = rotated.size
+    scene = Image.new("RGB", (w, h),
                       color=(random.randint(30, 200),
                              random.randint(30, 200),
                              random.randint(30, 200)))
     scene.paste(rotated, (0, 0), mask=rotated)
-    return scene, (0, 0, IMG_W, IMG_H)
+    return scene, (0, 0, w, h)
 
 
 def compose_negative_scene() -> Image.Image:
@@ -593,7 +611,10 @@ def generate_dataset(count: int, output_dir: str, aug_factor: int = 2, neg_ratio
         img_path = tmp_dir / f"{stem}.jpg"
         scene.save(img_path, quality=90)
 
-        yolo_line = xyxy_to_yolo(x1, y1, x2, y2, IMG_W, IMG_H)
+        # Normalize against this scene's own size, not the IMG_W/IMG_H
+        # constants — compose_scene's edge-to-edge path sizes the frame to
+        # the card's own (rotated) dimensions, not always IMG_W x IMG_H.
+        yolo_line = xyxy_to_yolo(x1, y1, x2, y2, scene.width, scene.height)
         all_imgs.append((img_path, yolo_line))
 
         # Augmented variants
@@ -614,7 +635,7 @@ def generate_dataset(count: int, output_dir: str, aug_factor: int = 2, neg_ratio
                 aug_stem = f"ktp_{i:05d}_aug{j}"
                 aug_path = tmp_dir / f"{aug_stem}.jpg"
                 aug_img.save(aug_path, quality=85)
-                aug_yolo = xyxy_to_yolo(ax1, ay1, ax2, ay2, IMG_W, IMG_H)
+                aug_yolo = xyxy_to_yolo(ax1, ay1, ax2, ay2, scene.width, scene.height)
                 all_imgs.append((aug_path, aug_yolo))
             except Exception:
                 pass
