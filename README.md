@@ -515,15 +515,34 @@ than redesigning the generator off a single sample.
   Re-validating against the real photo, on whatever GPU the eventual
   deployment platform provides, is the natural next step once cloud
   billing access exists — but the core technical risk (does this even
-  work on Linux) is no longer a risk. This meaningfully strengthens the
-  case for a GPU-capable deployment platform over the CPU-only-focused
-  recommendation from earlier planning discussions, worth revisiting once
-  billing is set up. Other remaining CPU-only levers, now lower priority
+  work on Linux) is no longer a risk.
+
+  **Decided architectural plan, pending that validation: GPU is the
+  intended primary path, CPU is the fallback.** Composing this session's
+  separate measurements (image decode 23ms + YOLO detection 29ms + deskew
+  9ms + the ~130ms inter-service HTTP hop + ~162ms GPU OCR) gives a
+  theoretical full-pipeline estimate of **~350ms** — comfortably clears
+  the sub-2-3s interactive-latency target discussed earlier, by a wide
+  margin. That's a big enough gap that it changes the plan, not just a
+  nice-to-have: with CPU alone (~5.6-5.7s/request), the sync
+  `/v1/ktp/extract` endpoint was a fallback and `/v1/ktp/jobs` (async) was
+  the recommended primary flow, since ~5-8s feels broken for an
+  interactive upload. At ~350ms, sync becomes viable as the *primary*
+  flow instead — a real UX simplification (no polling/job-status UI
+  needed) if it holds up.
+  **This is a known limitation, not a shipped result: the ~350ms figure
+  is composed from separate measurements on different hardware/images, not
+  one real end-to-end request timed as a whole.** It has not been
+  validated against the actual pipeline (detection → deskew → OCR in one
+  run), the real card, or a real deployment GPU — all blocked on the same
+  cloud billing access gap. Until that validation happens, CPU remains
+  what's actually running, and the async-primary/sync-fallback framing
+  from before still describes production reality today, not the GPU
+  numbers above. Other remaining CPU-only levers, now lower priority
   given this result: an older pre-3.x paddlepaddle that might restore
   working MKL-DNN on CPU (real risk: probably forces a paddleocr 2.x
   downgrade too, a different API), `PP-OCRv6_tiny_*` if its accuracy risks
-  turn out to be acceptable, or ONNX export. Still worth routing through
-  `/v1/ktp/jobs` (async), not the sync endpoint, in production regardless.
+  turn out to be acceptable, or ONNX export.
 - **False-positive tested: does the detector correctly reject non-KTP
   images?** Never validated before — all prior testing only checked
   detection on images that do contain a card. Ran the trained detector
