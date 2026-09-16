@@ -97,25 +97,66 @@ class PaddleOcrService(OcrService):
         lang: str = "en",
         text_detection_model_name: str = DEFAULT_TEXT_DETECTION_MODEL,
         text_recognition_model_name: str = DEFAULT_TEXT_RECOGNITION_MODEL,
+        engine: str = "paddle",
+        text_detection_model_dir: str | None = None,
+        text_recognition_model_dir: str | None = None,
     ):
+        # Validate before importing paddleocr — that import alone (not even
+        # instantiating a model) takes several seconds via its own heavy
+        # dependency chain, which would slow down unit tests exercising
+        # just this validation logic for no benefit.
+        if engine not in ("paddle", "onnxruntime"):
+            raise ValueError(f"Unknown engine {engine!r}; expected 'paddle' or 'onnxruntime'.")
+        if engine == "onnxruntime" and not (text_detection_model_dir and text_recognition_model_dir):
+            raise ValueError(
+                "engine='onnxruntime' requires text_detection_model_dir "
+                "and text_recognition_model_dir pointing at pre-converted "
+                "ONNX model directories."
+            )
+
         from paddleocr import PaddleOCR
 
         # Skip doc-orientation/unwarping/textline-orientation: YoloDetectionService
         # already deskews the card upstream, so these three extra model
         # stages would be redundant work on every request.
-        #
-        # enable_mkldnn=False works around a PaddlePaddle/oneDNN crash seen
-        # on this stack (NotImplementedError in onednn_instruction.cc);
-        # revisit if a paddlepaddle upgrade fixes the underlying bug.
-        self._engine = PaddleOCR(
+        kwargs: dict = dict(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
             lang=lang,
             text_detection_model_name=text_detection_model_name,
             text_recognition_model_name=text_recognition_model_name,
-            enable_mkldnn=False,
         )
+
+        if engine == "onnxruntime":
+            # Same model weights as the default engine, run through ONNX
+            # Runtime instead of PaddlePaddle's native inference engine —
+            # measured ~3.4x faster on CPU with byte-for-byte identical
+            # recognized text on the one test case tried so far (see
+            # README; not yet re-measured on this specific deployment's
+            # hardware via evaluate_pipeline.py, which is why this isn't
+            # the default). Requires model directories already converted
+            # to ONNX format (`paddlex --paddle2onnx` — note this
+            # conversion step itself has only been confirmed to work on
+            # Linux; it fails with a DLL error on Windows, a separate
+            # issue from running inference with the already-converted
+            # files, which does work on Windows). Doesn't need
+            # `enable_mkldnn` below — that's specific to working around a
+            # bug in the native Paddle engine, not applicable here.
+            kwargs["engine"] = "onnxruntime"
+            kwargs["device"] = "cpu"
+            kwargs["text_detection_model_dir"] = text_detection_model_dir
+            kwargs["text_recognition_model_dir"] = text_recognition_model_dir
+        else:
+            # enable_mkldnn=False works around a PaddlePaddle/oneDNN crash
+            # seen on this stack (NotImplementedError in
+            # onednn_instruction.cc) — confirmed not Windows-specific (the
+            # same crash reproduces on Linux too, just via a different
+            # error message), so this stays regardless of platform;
+            # revisit if a paddlepaddle upgrade fixes the underlying bug.
+            kwargs["enable_mkldnn"] = False
+
+        self._engine = PaddleOCR(**kwargs)
 
     def extract_fields(self, rectified_card: PILImage) -> KtpFields:
         lines = run_ocr(self._engine, rectified_card)

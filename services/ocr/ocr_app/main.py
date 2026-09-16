@@ -12,6 +12,7 @@ GPU-bound OCR stage scale independently of the cheap detection stage.
 from __future__ import annotations
 
 import io
+import os
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
@@ -28,9 +29,22 @@ def get_ocr_service() -> OcrService:
     """Built once, cached. Kept behind a FastAPI dependency (rather than a
     bare module-level singleton) so tests can override it with a fake and
     never load a real model.
+
+    Defaults to the native PaddlePaddle engine (unchanged behavior). Set
+    KTP_OCR_ENGINE=onnxruntime plus KTP_OCR_ONNX_DET_DIR/KTP_OCR_ONNX_REC_DIR
+    (pointing at model directories already converted via
+    `paddlex --paddle2onnx`) to use the ONNX Runtime path instead — see
+    PaddleOcrService and the README for the measured tradeoffs.
     """
     from ktp_ocr import PaddleOcrService
 
+    engine = os.getenv("KTP_OCR_ENGINE", "paddle")
+    if engine == "onnxruntime":
+        return PaddleOcrService(
+            engine="onnxruntime",
+            text_detection_model_dir=os.environ["KTP_OCR_ONNX_DET_DIR"],
+            text_recognition_model_dir=os.environ["KTP_OCR_ONNX_REC_DIR"],
+        )
     return PaddleOcrService()
 
 

@@ -39,6 +39,18 @@ def main() -> None:
     parser.add_argument("--eval-dir", default="./eval_set")
     parser.add_argument("--weights", default="./runs/ktp_detector/weights/best.pt")
     parser.add_argument("--report", default="./eval_report.json")
+    parser.add_argument(
+        "--onnx-det-dir",
+        default=None,
+        help="Use the ONNX Runtime OCR engine instead of native PaddlePaddle, "
+        "pointing text detection at this pre-converted model directory "
+        "(paddlex --paddle2onnx). Must be passed together with --onnx-rec-dir.",
+    )
+    parser.add_argument(
+        "--onnx-rec-dir",
+        default=None,
+        help="Text recognition model directory for the ONNX Runtime engine — see --onnx-det-dir.",
+    )
     args = parser.parse_args()
 
     eval_dir = Path(args.eval_dir)
@@ -47,9 +59,18 @@ def main() -> None:
         print(f"No .jpg images found in {eval_dir}")
         return
 
+    if args.onnx_det_dir or args.onnx_rec_dir:
+        ocr_service = PaddleOcrService(
+            engine="onnxruntime",
+            text_detection_model_dir=args.onnx_det_dir,
+            text_recognition_model_dir=args.onnx_rec_dir,
+        )
+    else:
+        ocr_service = PaddleOcrService()
+
     pipeline = KtpExtractionPipeline(
         detection_service=YoloDetectionService(args.weights),
-        ocr_service=PaddleOcrService(),
+        ocr_service=ocr_service,
     )
 
     correct_counts = {f: 0 for f in FIELD_NAMES}

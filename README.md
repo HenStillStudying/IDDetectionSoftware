@@ -65,6 +65,21 @@ Without `KTP_DETECTION_WEIGHTS`/`KTP_OCR_SERVICE_URL` the API and worker
 still run, using stubs for whichever one is missing. Without Redis running,
 `/v1/ktp/extract` (sync) still works — only `/v1/ktp/jobs` (async) needs it.
 
+Optionally, add these to terminal 2 to use the ONNX Runtime OCR engine
+instead of native PaddlePaddle — confirmed ~3-7x faster on CPU with zero
+accuracy cost (see Status below), but opt-in since it needs a manual
+conversion step first (`paddlex --install paddle2onnx` then
+`paddlex --paddle2onnx --paddle_model_dir <downloaded model> --onnx_model_dir services/ocr/onnx_models/<model name>`
+for each of `PP-OCRv6_small_det`/`PP-OCRv6_small_rec` — confirmed working
+on Linux, fails with a DLL error on Windows, though running the
+already-converted models works fine on both):
+```bash
+KTP_OCR_ENGINE=onnxruntime \
+KTP_OCR_ONNX_DET_DIR=./onnx_models/PP-OCRv6_small_det \
+KTP_OCR_ONNX_REC_DIR=./onnx_models/PP-OCRv6_small_rec \
+uvicorn ocr_app.main:app --port 8001
+```
+
 ## Train the detection model
 
 ```bash
@@ -586,14 +601,49 @@ than redesigning the generator off a single sample.
   confirming that particular bug is a genuine PaddlePaddle issue, not a
   Windows-only artifact like the others found this session.
   Quantization remains untried (real speed lever, real accuracy risk,
-  needs calibration data and full re-validation). Both GPU (native,
-  ~162ms) and now ONNX-on-CPU (~1070ms) are confirmed, real levers — GPU
-  remains the intended primary path, with ONNX-on-CPU now a much stronger
-  fallback than plain CPU (3.4x faster than what's actually running in
-  production today) if GPU access takes longer to materialize than
-  expected. Neither has been integrated into the actual codebase yet —
-  both were validated on a throwaway Kaggle notebook, not
-  `services/ocr`.
+  needs calibration data and full re-validation).
+  **Integrated into `services/ocr` behind an opt-in flag, and fully
+  validated — including catching and correcting a self-inflicted false
+  alarm along the way.** `PaddleOcrService` now accepts
+  `engine="onnxruntime"` plus the two converted model directories (wired
+  through `KTP_OCR_ENGINE=onnxruntime` /
+  `KTP_OCR_ONNX_DET_DIR`/`KTP_OCR_ONNX_REC_DIR` env vars in the OCR
+  service's `main.py`); the default (`engine="paddle"`, unset env var) is
+  completely unchanged. Loading and running inference with the converted
+  ONNX models works cleanly on Windows with no DLL issues at all — unlike
+  every native Paddle-ecosystem extension this session, `onnxruntime`
+  itself is a separate, more mature cross-platform library, not sharing
+  that fragility.
+  A first correctness check looked alarming — feeding a raw, undetected
+  scene photo directly to `run_ocr()` (skipping detection/rectification
+  entirely) produced garbled fields and value/label offsets nearly 3x
+  larger than the geometry this project's field-matching logic was tuned
+  around. That was a testing mistake, not a real engine difference: the
+  OCR service expects an already-rectified card, not a full scene, and
+  feeding it the wrong kind of input broke the geometry assumptions
+  regardless of engine. The actual validation — `evaluate_pipeline.py`
+  (now with `--onnx-det-dir`/`--onnx-rec-dir` flags) run properly through
+  the full detection+OCR pipeline against the 30-image synthetic eval
+  set — came back **field-for-field identical to the native-engine
+  baseline, zero regression on any field**. The real card, run through
+  the same full pipeline: **all 17 fields correct** (matching the best
+  native result) at **819ms total pipeline time, vs. ~5.6-5.7s native on
+  the same machine — roughly 7x faster**, a stronger result than the
+  ~3.4x measured in isolation on Kaggle (this includes the full
+  detection+OCR pipeline, on this machine's specific hardware, not just
+  OCR alone on a synthetic image).
+  Kept opt-in rather than made default: the ONNX model directories don't
+  auto-download the way the native engine's models do (they're a manual
+  `paddlex --paddle2onnx` conversion step, confirmed working on Linux
+  only so far, then copied in — see `services/ocr/onnx_models/`,
+  gitignored), so defaulting to it would silently break a fresh
+  install/deployment that hasn't done that setup. Both GPU (native,
+  ~162ms OCR-only) and ONNX-on-CPU (~1070ms OCR-only, ~819ms full
+  pipeline on a real card) are now confirmed, real, and validated levers.
+  GPU remains the intended primary path once cloud access exists;
+  ONNX-on-CPU is available today, right now, with no billing dependency
+  at all, and is a dramatically stronger fallback than plain CPU while
+  GPU access is blocked.
 
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
