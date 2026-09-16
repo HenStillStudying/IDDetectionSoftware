@@ -418,6 +418,39 @@ than redesigning the generator off a single sample.
   photos like this one — that would trade unproven accuracy risk for a
   speed problem that hasn't been confirmed to exist.
 
+  **Profiled properly before optimizing further** (all detector/OCR fixes
+  above measured fresh, current numbers — not assumed from before):
+  detection (YOLO) ~29ms, deskew/perspective warp ~9ms, the HTTP hop to
+  the separate OCR service ~130ms overhead, image decode ~23ms — all
+  negligible. **PaddleOCR itself is ~5.5s, roughly 97% of the ~5.6-5.7s
+  total** on the real card as currently measured (itself noticeably faster
+  than the ~7-8s reported earlier in this same session — most likely
+  because the detector retraining since then produces a tighter rectified
+  crop, 1223×1188 vs. a larger ~1570×1069 one before, so PaddleOCR has
+  fewer pixels to process; reported as freshly measured rather than
+  assumed carried over). Conclusion: any further latency work has to
+  target PaddleOCR specifically, nothing else is worth touching.
+  Tried, then reverted: downscaling the *rectified card* (separate from
+  the upload-level downscale above, which only touches the original
+  photo and was already a no-op here) to at most 1000px before OCR. Real
+  card: only 7% faster (5646ms → 5272ms) — far less than the ~55% pixel-
+  area reduction would suggest, implying PaddleOCR's recognition cost is
+  driven more by the number of text regions than by raw canvas area — and
+  a real accuracy cost on the *only* data point that exercises this code
+  path at all: `nama` dropped one character partway through the name, and
+  `alamat` lost its punctuation. The synthetic eval set gave zero
+  signal on this change either way (its crops are already smaller than
+  1000px, so the code path never engaged) — another case of the synthetic
+  harness being unable to validate a real-photo-scale change. Reverted
+  given the poor return (small speedup, real accuracy risk, no synthetic
+  validation coverage). Untried: ONNX export (re-run the same PaddleOCR
+  weights through ONNX Runtime instead of PaddlePaddle's native CPU
+  engine — no accuracy cost since it's the same model, but real
+  integration work to verify `paddle2onnx` conversion works cleanly for
+  PP-OCRv6) and quantization (real speed lever, real accuracy risk,
+  needs calibration data and full re-validation). GPU remains the
+  largest still-unconfirmed lever, blocked on cloud Linux access.
+
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
   unwarping/textline-orientation stages (already deskewed upstream), and
