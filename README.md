@@ -487,19 +487,42 @@ than redesigning the generator off a single sample.
   consistently very slow (as low as 341 kB/s, 1.5-hour ETAs) through Docker
   Desktop's WSL2 network path and corrupted mid-download twice, which also
   filled the host disk once (recovered, unrelated to this project) and
-  burned significant time without a clean result. This looks like a
+  burned significant time without a clean result. This looked like a
   network-path/environment problem specific to Docker-Desktop-on-Windows,
-  not a new technical blocker — but it means the actual cuDNN-loads-on-Linux
-  question is still open. **Re-test this on an actual cloud Linux GPU
-  instance** once a deployment platform is chosen — better network path to
-  that CDN, and it's the real target environment rather than a local proxy
-  for it — before spending effort on other latency levers (ONNX/TensorRT
-  export, quantization, a custom lightweight recognizer). Other remaining
-  CPU-only levers if GPU doesn't pan out: an
-  older pre-3.x paddlepaddle that might restore working MKL-DNN on CPU
-  (real risk: probably forces a paddleocr 2.x downgrade too, a different
-  API), or `PP-OCRv6_tiny_*` if its accuracy risks turn out to be
-  acceptable for a given deployment. Still worth routing through
+  not a new technical blocker, but the actual cuDNN-loads-on-Linux question
+  stayed open until confirmed directly.
+  **Confirmed: GPU inference works, and the speedup is transformative.**
+  Tested on a free Kaggle notebook (T4 GPU, no billing setup required —
+  the practical option while cloud billing access is a real barrier right
+  now) rather than the blocked local WSL2 path: `paddlepaddle-gpu` (CUDA
+  version matched to whatever the notebook's own `nvidia-smi` reported)
+  and `paddleocr` installed cleanly and fast — datacenter networking made
+  the exact download that failed for hours on Windows a non-issue.
+  `PaddleOCR(device="gpu", ...)` with the same `PP-OCRv6_small_*` models
+  this project uses instantiated and ran without any of Windows' DLL
+  errors. Measured 50ms on a single-line test image, then 162ms on a
+  synthetic image built to match a real KTP's field density (~17 lines of
+  text) — the more representative number, since recognition cost scales
+  with the number of text regions, not just image size (learned the hard
+  way testing CPU-side downscaling earlier). **162ms vs. the ~5.5s CPU
+  baseline on a real photo is roughly a 34x speedup.** This resolves the
+  single biggest open question this project has had. Caveats before
+  treating 162ms as the production number: this measured PaddleOCR alone
+  on a notebook-drawn synthetic image, not the full pipeline (detection +
+  deskew + OCR) against an actual detected/rectified real card, and not on
+  whatever GPU a real deployment platform would actually provision (T4 is
+  a reasonable baseline, but instance type varies by provider/cost tier).
+  Re-validating against the real photo, on whatever GPU the eventual
+  deployment platform provides, is the natural next step once cloud
+  billing access exists — but the core technical risk (does this even
+  work on Linux) is no longer a risk. This meaningfully strengthens the
+  case for a GPU-capable deployment platform over the CPU-only-focused
+  recommendation from earlier planning discussions, worth revisiting once
+  billing is set up. Other remaining CPU-only levers, now lower priority
+  given this result: an older pre-3.x paddlepaddle that might restore
+  working MKL-DNN on CPU (real risk: probably forces a paddleocr 2.x
+  downgrade too, a different API), `PP-OCRv6_tiny_*` if its accuracy risks
+  turn out to be acceptable, or ONNX export. Still worth routing through
   `/v1/ktp/jobs` (async), not the sync endpoint, in production regardless.
 - **False-positive tested: does the detector correctly reject non-KTP
   images?** Never validated before — all prior testing only checked
