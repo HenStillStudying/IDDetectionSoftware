@@ -1,4 +1,10 @@
-from ktp_ocr.field_labels import find_label_line, find_same_row_value, find_value_line, same_line_value
+from ktp_ocr.field_labels import (
+    find_label_line,
+    find_same_row_value,
+    find_value_line,
+    merged_label_prefix_value,
+    same_line_value,
+)
 from ktp_ocr.text_lines import TextLine
 
 
@@ -56,6 +62,39 @@ def test_same_line_value_returns_none_for_stacked_layout_label():
 def test_same_line_value_returns_none_when_nothing_follows_colon():
     label_line = _line("Nama:", x1=0, y1=0, x2=50, y2=15)
     assert same_line_value(label_line) is None
+
+
+def test_merged_label_prefix_value_splits_colonless_merged_line():
+    # A real KTP test showed OCR merging a label and its value onto one
+    # line with no colon between them at all: "Status Perkawinarc BELUM
+    # KAWIN" ("Perkawinan" misread as "Perkawinarc"). Without this, the
+    # match falls through to the stacked-below fallback and wrongly grabs
+    # the next row's label text instead.
+    label_line = _line("Status Perkawinarc BELUM KAWIN", x1=66, y1=686, x2=679, y2=730)
+    value = merged_label_prefix_value(label_line, ["Status Perkawinan"])
+    assert value == "BELUM KAWIN"
+
+
+def test_merged_label_prefix_value_returns_none_when_colon_present():
+    # same_line_value already handles the colon case; this function should
+    # defer to it rather than double-processing.
+    label_line = _line("NIK : 9205031303070001", x1=0, y1=0, x2=200, y2=15)
+    assert merged_label_prefix_value(label_line, ["NIK"]) is None
+
+
+def test_merged_label_prefix_value_returns_none_when_no_good_split():
+    label_line = _line("completely unrelated text", x1=0, y1=0, x2=200, y2=15)
+    assert merged_label_prefix_value(label_line, ["Status Perkawinan"]) is None
+
+
+def test_merged_label_prefix_value_does_not_slice_a_multiword_label_alone():
+    # Regression: a stacked-layout, label-only line ("Tempat/Tgl Lahir",
+    # no value at all yet) was wrongly getting its own trailing word
+    # "Lahir" sliced off and mistaken for a value, because the partial
+    # prefix "Tempat/Tgl" alone already scored high enough against the
+    # full canonical label under a looser threshold.
+    label_line = _line("Tempat/Tgl Lahir", x1=0, y1=0, x2=100, y2=15)
+    assert merged_label_prefix_value(label_line, ["Tempat/Tgl Lahir", "Tempat Tgl Lahir"]) is None
 
 
 def test_find_same_row_value_excludes_next_row_value_bleeding_upward():

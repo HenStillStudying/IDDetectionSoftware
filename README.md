@@ -560,11 +560,58 @@ than redesigning the generator off a single sample.
   every synthetic and false-positive check had missed entirely. Reverted
   to the previous weights immediately (`ktp_detector_v4`) — confirmed
   detection restored (0.91 confidence, matching every prior real-card
-  test). Root cause not yet investigated (would mean a fifth retraining
-  round to isolate, which risks the same blind spot again without a
-  second real card to validate against). The KK/portrait-page false
-  positive gap is therefore still open, and worse than before this
-  attempt is known to be: **any future retraining on this project must be
-  validated against the real photo before being treated as fixed, not
-  just the synthetic eval set and false-positive battery** — those two
-  checks alone gave a false all-clear here.
+  test). **Root-caused on a follow-up, once the real photo was available
+  again**: `_compose_edge_to_edge` (shared by both `compose_scene` and
+  `compose_negative_scene`) force-resized *every* subject into a fixed
+  960×720 landscape frame regardless of its native proportions. For
+  `portrait_document` specifically (~0.7 width:height) that's a severe
+  horizontal stretch unlike any other distractor kind — plausibly enough
+  visual distortion, appearing in 15% of negative training examples, to
+  shift the model's general decision boundary and suppress recall on an
+  already-somewhat-marginal real photo (0.91 confidence was never as
+  confident as synthetic positives' typical 0.99+). Fixed at the source
+  rather than patched around: the edge-to-edge frame now sizes itself to
+  match the (rotated) subject's own dimensions instead of forcing a fixed
+  size, since a real "photo cropped tight to a document's edges" would
+  naturally have that document's own aspect ratio anyway. This meant
+  updating the two label-normalization call sites in
+  `generate_dataset` that had assumed every scene was exactly IMG_W×IMG_H
+  to use the actual per-image scene size instead.
+  Retrained (`ktp_detector_v6`) and — critically, in this order this
+  time — **validated against the real photo *before* touching production
+  weights**: 0.87 confidence (close to the original 0.91), then confirmed
+  the KK false positive still correctly rejects, then confirmed
+  `evaluate_pipeline.py` unchanged, only *then* promoted to production.
+  All green. **Confirms the methodology lesson stands regardless of this
+  fix**: any future retraining on this project must be validated against
+  the real photo *before* being promoted, not just the synthetic eval set
+  and false-positive battery — those two alone gave a false all-clear the
+  first time, and only re-testing against real data caught it.
+  While validating this fix end-to-end, a *second*, unrelated bug
+  surfaced on the real card: `status_perkawinan` came back as
+  `"PEKERJAAN"` — literally the next field's label text, not "BELUM
+  KAWIN". Root cause via a fresh geometry dump: OCR had merged the label
+  and value onto one line with *no colon at all* this time
+  ("Status Perkawinarc BELUM KAWIN" as a single box) — a fourth
+  label/value layout pattern (alongside colon-merged, same-row-separate-
+  box, and stacked-below) that nothing in `field_labels.py` handled, so it
+  fell through every strategy to the stacked-below fallback, which then
+  matched the *next row's label* (sharing the same left margin every
+  label uses) since there was nothing else at that exact row to compete
+  with it. Fixed by adding `merged_label_prefix_value`: finds the
+  word-count prefix of a colonless line that best fuzzy-matches a known
+  label, and treats everything after it as the value. This first version
+  caused its own regression — `tempat_lahir`/`tanggal_lahir` collapsed to
+  0% because a genuine label-*only* line ("Tempat/Tgl Lahir", no value
+  present at all) had a partial prefix ("Tempat/Tgl" alone) that already
+  scored 0.78 against the full canonical label, high enough to clear the
+  same 0.6 threshold `find_label_line` uses elsewhere — so "Lahir" (the
+  label's own trailing word) got sliced off and mistaken for a value.
+  Caught immediately by re-running `evaluate_pipeline.py` (not skipped
+  this time) before treating the fix as done; fixed by giving this
+  specific check its own, stricter threshold (0.85) — a genuine merged
+  label+value split scores far higher (~0.91 for "Status Perkawinarc"
+  against "Status Perkawinan") since the *whole* label, not a fragment,
+  precedes the value there. Final result: **all 17 fields correct on the
+  real card again**, `evaluate_pipeline.py` numbers unchanged from
+  baseline, 57 tests passing.

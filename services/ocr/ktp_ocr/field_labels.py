@@ -2,30 +2,42 @@
 
 We don't try to read the card generally — we search OCR'd text lines for a
 small set of known Indonesian KTP field labels (tolerating OCR noise via
-fuzzy string matching), then locate each value using whichever of three
+fuzzy string matching), then locate each value using whichever of four
 patterns the card's OCR output actually shows, tried in this order:
 
-1. Same OCR line as the label: "NIK : 9205031303070001" as one continuous
-   line. Rare in practice on a real card (PaddleOCR usually doesn't merge
-   label and value this way), but happens when they sit close enough
-   together — see same_line_value.
-2. Same row, separate OCR box: label and value detected as two distinct
+1. Same OCR line as the label, colon-separated: "NIK : 9205031303070001"
+   as one continuous line. Happens when label and value sit close enough
+   together for PaddleOCR to merge their boxes — see same_line_value.
+2. Same OCR line as the label, *no* colon at all: "Status Perkawinarc
+   BELUM KAWIN" merged into one box with nothing separating them —
+   confirmed on a real KTP where PaddleOCR's merging behavior varies even
+   for the same physical layout style. Without this, the match falls
+   through every other strategy (there's no colon to split on, and
+   nothing else qualifies as a same-row box since the value is stuck
+   inside the label's own) all the way to the stacked-below fallback,
+   which then wrongly grabs the *next row's label* text instead (every
+   row's label shares the same left margin) — see
+   merged_label_prefix_value.
+3. Same row, separate OCR box: label and value detected as two distinct
    boxes with overlapping y-ranges, value to the right — confirmed to be
    the *dominant* pattern on a real KTP (the government form's column
    spacing is wide enough that OCR splits them rather than merging or
    stacking them). A row can have multiple boxes to the right (e.g. "Jenis
    Kelamin" also carries gender, "Gol. Darah", and the blood type letter as
    three separate boxes) — see find_same_row_value.
-3. Stacked on the line below the label — how our synthetic dataset
+4. Stacked on the line below the label — how our synthetic dataset
    generator currently renders every field (label on one line, ": value" on
    the next). Value lookup here is geometric (nearest line below, not list
    order) since OCR line order isn't reliably top-to-bottom — see
    find_value_line.
 
-All three are needed because the synthetic generator's assumption
-(stacked) turned out not to match real KTPs (same-row, separate boxes) — a
-real card exposed a systematic one-row-shifted misread across every field
-before this fix.
+All four are needed because no single assumption holds consistently: the
+synthetic generator's original assumption (stacked) didn't match real
+KTPs at all (same-row, separate boxes) — a real card exposed a systematic
+one-row-shifted misread across every field before that fix — and even
+after that fix, the *same* physical row printed on the *same* real card
+has been OCR'd as colon-merged, colonless-merged, and separate-box across
+different test runs.
 
 Some visual rows carry two schema fields (e.g. "Jenis Kelamin" also carries
 blood type) — splitting those combined values into individual KtpFields
@@ -40,6 +52,9 @@ import re
 from .text_lines import TextLine
 
 LABEL_MATCH_THRESHOLD = 0.6
+# Stricter than LABEL_MATCH_THRESHOLD — see merged_label_prefix_value's
+# docstring for why a looser threshold there caused a real regression.
+MERGED_LABEL_SPLIT_THRESHOLD = 0.85
 MAX_VALUE_VERTICAL_GAP_RATIO = 0.08  # fraction of card height
 # Labels and values share the same left margin in this layout, so a true
 # value's x1 sits within a few pixels of its label's x1. This must stay
@@ -103,6 +118,57 @@ def same_line_value(label_line: TextLine) -> str | None:
     if len(parts) != 2:
         return None
     value = parts[1].strip()
+    return value or None
+
+
+def merged_label_prefix_value(label_line: TextLine, canonical_labels: list[str]) -> str | None:
+    """Handles a label and its value merged onto one OCR line with *no*
+    colon between them at all (e.g. "Status Perkawinarc BELUM KAWIN") — a
+    variant `same_line_value` can't handle since it specifically looks for
+    a colon. Confirmed necessary against a real KTP: without this, the
+    match fell through `same_line_value` (no colon to split on) and
+    `find_same_row_value` (nothing else qualifies at that exact row, since
+    the value is stuck inside the label's own box) all the way to the
+    stacked-below fallback, which then wrongly grabbed the *next row's
+    label* text instead (it happens to share the same left margin every
+    row uses).
+
+    Finds the word-count prefix of the line that best fuzzy-matches a
+    canonical label (the same matching `find_label_line` uses, just
+    applied at each possible split point instead of the whole line), and
+    returns everything after that prefix as the value. Returns None if the
+    line has a colon (that's `same_line_value`'s case) or no split point
+    scores high enough to trust.
+
+    Uses a stricter threshold than `find_label_line`'s (0.6): a *partial*
+    prefix of a genuine multi-word label can itself already clear 0.6
+    against the full canonical label (e.g. "Tempat/Tgl" alone scores 0.78
+    against "Tempat/Tgl Lahir") — confirmed to cause a real regression, a
+    stacked-layout "Tempat/Tgl Lahir" label-only line getting its own
+    trailing word "Lahir" sliced off and mistaken for a value. A genuine
+    merged label+value line's true split point scores far higher (~0.91
+    for "Status Perkawinarc" against "Status Perkawinan") since the whole
+    label, not a fragment of it, precedes the value there.
+    """
+    if ":" in label_line.text:
+        return None
+
+    words = label_line.text.split()
+    best_prefix_len: int | None = None
+    best_score = 0.0
+    for prefix_len in range(1, len(words)):
+        normalized_prefix = _normalize(" ".join(words[:prefix_len]))
+        if not normalized_prefix:
+            continue
+        for label in canonical_labels:
+            score = difflib.SequenceMatcher(None, normalized_prefix, _normalize(label)).ratio()
+            if score > best_score:
+                best_score, best_prefix_len = score, prefix_len
+
+    if best_prefix_len is None or best_score < MERGED_LABEL_SPLIT_THRESHOLD:
+        return None
+
+    value = " ".join(words[best_prefix_len:]).strip()
     return value or None
 
 

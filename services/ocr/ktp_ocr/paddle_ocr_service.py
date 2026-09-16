@@ -26,6 +26,7 @@ from .field_labels import (
     find_label_line,
     find_same_row_value,
     find_value_line,
+    merged_label_prefix_value,
     same_line_value,
 )
 from .parsing import (
@@ -53,6 +54,10 @@ def _row_value(
     inline_value = same_line_value(label_line)
     if inline_value is not None:
         return inline_value, label_line.confidence
+
+    merged_value = merged_label_prefix_value(label_line, ROW_LABELS[row_key])
+    if merged_value is not None:
+        return merged_value, label_line.confidence
 
     same_row = find_same_row_value(lines, label_line)
     if same_row is not None:
