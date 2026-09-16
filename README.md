@@ -644,6 +644,17 @@ than redesigning the generator off a single sample.
   ONNX-on-CPU is available today, right now, with no billing dependency
   at all, and is a dramatically stronger fallback than plain CPU while
   GPU access is blocked.
+  **Real end-to-end confirmation, the most honest number yet**: ran with
+  the ONNX engine live through all the actual moving parts — the `/demo`
+  page, a real browser upload, FastAPI's multipart parsing, the full
+  detection+OCR pipeline — against the real card. **17/17 fields correct,
+  ~2s processing time.** Higher than the 819ms measured by calling
+  `pipeline.run()` directly (that number skips browser upload overhead,
+  multipart parsing, and isn't guaranteed warm), but still a genuine
+  ~2.8x improvement over the ~5.6-5.7s native baseline on the same
+  request path — and the more trustworthy figure of the two, since it's
+  what an actual user of this API would experience rather than a
+  synthetic benchmark.
 
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
