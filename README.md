@@ -531,13 +531,37 @@ than redesigning the generator off a single sample.
   1000px, so the code path never engaged) — another case of the synthetic
   harness being unable to validate a real-photo-scale change. Reverted
   given the poor return (small speedup, real accuracy risk, no synthetic
-  validation coverage). Untried: ONNX export (re-run the same PaddleOCR
-  weights through ONNX Runtime instead of PaddlePaddle's native CPU
-  engine — no accuracy cost since it's the same model, but real
-  integration work to verify `paddle2onnx` conversion works cleanly for
-  PP-OCRv6) and quantization (real speed lever, real accuracy risk,
-  needs calibration data and full re-validation). GPU remains the
-  largest still-unconfirmed lever, blocked on cloud Linux access.
+  validation coverage).
+  **ONNX export: tried, blocked by a Windows-specific DLL failure, not a
+  dead end.** Planned as a low-risk lever since PaddleX (which `paddleocr`
+  is built on) turned out to have first-class, official support for this
+  — a built-in `onnxruntime` inference engine, plus an official
+  `paddlex --install paddle2onnx` / `paddlex --paddle2onnx` conversion
+  pipeline purpose-built for PaddleX/PaddleOCR's own models, not a manual
+  reimplementation of detection/recognition pre- and post-processing.
+  Feasibility confirmed (the plugin installed cleanly, `onnxruntime` was
+  already present), but the actual conversion attempt failed immediately:
+  `paddle2onnx`'s own compiled C++ extension
+  (`paddle2onnx_cpp2py_export`) fails to import with `ImportError: DLL
+  load failed... The specified procedure could not be found` — a
+  version-mismatched native dependency, not a missing one (`vcruntime140.dll`
+  is present in both expected locations, ruling out the obvious fix).
+  This is the *third* distinct Windows-specific native-extension failure
+  in the PaddlePaddle ecosystem this session (alongside the cuDNN
+  `zlibwapi.dll` issue and the PyTorch/PaddlePaddle same-process DLL
+  conflict) — a real pattern on this machine, not a fluke. Stopped here
+  per the planned fallback rather than debugging indefinitely: **nothing
+  in the running code was touched**, `PaddleOcrService` (PaddleOCR-native,
+  CPU) remains the only path, completely unaffected. Given every other
+  Windows-native-extension issue this session turned out to not reproduce
+  on Linux (confirmed directly for GPU, via a free Kaggle T4), the same
+  move would plausibly resolve this too — untried, a candidate for
+  revisiting alongside the GPU work rather than fighting further on
+  Windows. Quantization remains untried (real speed lever, real accuracy
+  risk, needs calibration data and full re-validation). GPU remains the
+  largest confirmed-but-unvalidated-in-production lever (see above),
+  and now also the only latency lever that's actually been proven to work
+  past Windows' native-extension issues.
 
   The 3-4s synthetic-image figure is itself down from ~12-14s before the
   two CPU-only optimizations that got it there: skipping PaddleOCR's redundant doc-orientation/
