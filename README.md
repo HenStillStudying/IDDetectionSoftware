@@ -327,6 +327,31 @@ than redesigning the generator off a single sample.
   confidence 0.96. 4 regression tests added across this fix (2 field-match
   cases with real-card coordinates, 1 for the digit/letter blood-type
   confusion, all passing); 50 tests total.
+- **Digit-lookalike autocorrection for digit-only fields.** The
+  golongan_darah fix above corrected one specific digit-standing-in-for-a-
+  letter case (OCR read "O" as "0"). The mirror problem — a letter standing
+  in for a digit (e.g. "13-03-2OO7" instead of "13-03-2007") — was still
+  unhandled, and `only_digits()` (used for NIK) would silently *drop* any
+  such letter entirely rather than correct it, shortening the NIK and
+  breaking its length validation instead of just being noisy. Added
+  `normalize_digit_lookalikes()` (`parsing.py`), swapping OCR's common
+  digit-lookalike letters (O/o→0, I/l/i→1, S/s→5, B→8, Z/z→2, G→6) back to
+  digits, and applied it to the three fields that are digit-only (or
+  digit-heavy) by format: NIK, RT/RW, and the isolated date value (after
+  splitting from tempat_lahir's free text). Deliberately *not* applied to
+  `berlaku_hingga` (can legitimately be literal text, "SEUMUR HIDUP", so
+  blind character substitution would corrupt it — confirmed by a test:
+  naive substitution turns it into "5EUMUR H1DUP") or to `nama`/`alamat`
+  (free text/proper nouns — a dictionary or language-model spell-check was
+  considered and rejected for these: Indonesian names and street names are
+  exactly the kind of non-standard proper nouns a spell-checker would
+  "correct" into a plausible but wrong value, which is worse for identity
+  data than a visibly-noisy OCR error a human can catch). The existing
+  `snap_to_enum` fuzzy-match mechanism already covers every closed-
+  vocabulary field this way (gender, blood type, religion, marital status,
+  job, province) — this fix is the equivalent for the fields whose "closed
+  vocabulary" is just "digits." 3 regression tests added; 53 tests total,
+  no regression on `evaluate_pipeline.py` or the real card.
 - **Perspective correction, not just rotation, is now implemented** —
   `YoloDetectionService` finds the card's 4 corners (contour + `approxPolyDP`)
   and applies a proper `warpPerspective`, falling back to the old
@@ -517,11 +542,29 @@ than redesigning the generator off a single sample.
   one much weaker one introduced. Left undone at the time rather than
   chasing a fourth round in the same session (diminishing returns /
   whack-a-mole risk).
-  **Revisited and fixed**: added a `portrait_document` distractor kind
+  **Revisited, then reverted — a serious lesson about what the synthetic
+  eval set can't catch.** Added a `portrait_document` distractor kind
   (`ktp_dataset_generator.py`) — A4-ish proportions (~0.65-0.75
   width:height, vs. every other distractor's landscape/card shape), a
   bordered title block, a few label/value lines, then a header row and
   several data rows, mimicking a household-register-style document.
-  Retrained (mAP50 0.995, unchanged) — the KK mockup that previously fired
-  at 0.50 confidence now correctly rejects, and `evaluate_pipeline.py`
-  gives identical per-field numbers to before (no regression).
+  Retrained: mAP50 0.995 (unchanged), `evaluate_pipeline.py` gave identical
+  per-field numbers to before (no regression), and the KK mockup that
+  previously fired at 0.50 confidence now correctly rejected. By every
+  measure this project had been using, this looked like a clean fix.
+  **It wasn't** — re-tested against the one real KTP photo (the same
+  discipline that caught the `berlaku_hingga`/`golongan_darah` regressions
+  above) and the retrained detector found *zero* boxes on it at all, not
+  even a low-confidence one, versus 0.91 confidence on the exact same
+  photo with the previous weights. A real, complete detection failure that
+  every synthetic and false-positive check had missed entirely. Reverted
+  to the previous weights immediately (`ktp_detector_v4`) — confirmed
+  detection restored (0.91 confidence, matching every prior real-card
+  test). Root cause not yet investigated (would mean a fifth retraining
+  round to isolate, which risks the same blind spot again without a
+  second real card to validate against). The KK/portrait-page false
+  positive gap is therefore still open, and worse than before this
+  attempt is known to be: **any future retraining on this project must be
+  validated against the real photo before being treated as fixed, not
+  just the synthetic eval set and false-positive battery** — those two
+  checks alone gave a false all-clear here.

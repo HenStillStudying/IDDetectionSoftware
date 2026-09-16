@@ -19,8 +19,29 @@ def strip_value_prefix(text: str) -> str:
     return re.sub(r"^[:\s]+", "", text).strip()
 
 
+_DIGIT_LOOKALIKES = str.maketrans(
+    {"O": "0", "o": "0", "I": "1", "l": "1", "i": "1", "S": "5", "s": "5", "B": "8", "Z": "2", "z": "2", "G": "6"}
+)
+
+
+def normalize_digit_lookalikes(text: str) -> str:
+    """Swaps letters OCR commonly misreads in place of a digit (O/o->0,
+    I/l/i->1, S/s->5, B->8, Z/z->2, G->6) back to the digit — confirmed
+    against a real KTP, where the blood-type letter "O" came back as the
+    digit "0" (handled separately in split_jenis_kelamin_gol_darah, the
+    reverse direction: a digit standing in for a letter). This is the
+    mirror case: a letter standing in for a digit.
+
+    Only call this on a value already known by its field's format to be
+    digit-only or digit-heavy (NIK, RT/RW, an isolated date) — applying it
+    to free text would corrupt real words that happen to contain these
+    letters (e.g. "SEUMUR HIDUP" becoming "5EUMUR H1DUP").
+    """
+    return text.translate(_DIGIT_LOOKALIKES)
+
+
 def only_digits(text: str) -> str:
-    return re.sub(r"\D", "", text)
+    return re.sub(r"\D", "", normalize_digit_lookalikes(text))
 
 
 _TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}[-\s]?\d{1,2}[-\s]?\d{4})")

@@ -1,5 +1,7 @@
 from ktp_ocr.parsing import (
     find_berlaku_hingga,
+    normalize_digit_lookalikes,
+    only_digits,
     split_jenis_kelamin_gol_darah,
     split_rt_rw_kelurahan,
     split_tempat_tanggal_lahir,
@@ -17,6 +19,26 @@ def test_split_jenis_kelamin_gol_darah_with_digit_zero_misread_as_letter_o():
     # A real KTP test showed OCR reading the blood-type letter "O" as the
     # digit "0" instead.
     assert split_jenis_kelamin_gol_darah("LAKILAKI Gol. Derah 0") == ("LAKILAKI", "O")
+
+
+def test_normalize_digit_lookalikes_swaps_letters_back_to_digits():
+    assert normalize_digit_lookalikes("13-03-2OO7") == "13-03-2007"
+    assert normalize_digit_lookalikes("00I/002") == "001/002"
+
+
+def test_normalize_digit_lookalikes_leaves_non_digit_context_untouched_by_caller_choice():
+    # The function itself has no way to know context -- it's the caller's
+    # job to only invoke it on values already known to be digit-only/heavy
+    # by field format. Documented here as a warning, not a guarantee: this
+    # WOULD corrupt free text if misapplied.
+    assert normalize_digit_lookalikes("SEUMUR HIDUP") == "5EUMUR H1DUP"
+
+
+def test_only_digits_corrects_letter_lookalikes_instead_of_dropping_them():
+    # Previously this just stripped any non-digit character, which would
+    # silently shorten a NIK (and break its length validation) if OCR
+    # misread even one digit as a letter, instead of correcting it.
+    assert only_digits("92O5031303070001") == "9205031303070001"
 
 
 def test_split_tempat_tanggal_lahir_with_comma():

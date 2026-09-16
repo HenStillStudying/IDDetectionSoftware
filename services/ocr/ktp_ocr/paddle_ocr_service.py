@@ -32,6 +32,7 @@ from .parsing import (
     find_berlaku_hingga,
     find_kota_kabupaten,
     find_provinsi,
+    normalize_digit_lookalikes,
     only_digits,
     snap_to_enum,
     split_jenis_kelamin_gol_darah,
@@ -131,6 +132,11 @@ class PaddleOcrService(OcrService):
         tempat_lahir, tanggal_lahir = (
             split_tempat_tanggal_lahir(ttl_raw) if ttl_raw else (None, None)
         )
+        # A date is digit-only by definition, so once it's isolated from
+        # tempat_lahir's free text, any letter OCR mistook for a digit
+        # (e.g. "13-03-2OO7") is safe to correct back.
+        if tanggal_lahir is not None:
+            tanggal_lahir = normalize_digit_lookalikes(tanggal_lahir)
         jenis_kelamin, golongan_darah = (
             split_jenis_kelamin_gol_darah(jk_raw) if jk_raw else (None, None)
         )
@@ -144,6 +150,11 @@ class PaddleOcrService(OcrService):
             split_rt_rw, split_kelurahan = split_rt_rw_kelurahan(rt_rw)
             if split_kelurahan is not None:
                 rt_rw, kelurahan_desa = split_rt_rw, split_kelurahan
+
+        # RT/RW is digit-only (aside from its "/" separator), so any letter
+        # OCR mistook for a digit is safe to correct back.
+        if rt_rw is not None:
+            rt_rw = normalize_digit_lookalikes(rt_rw)
 
         return KtpFields(
             nik=_field(only_digits(nik_raw) if nik_raw else None, nik_conf),
