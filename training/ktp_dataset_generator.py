@@ -284,6 +284,17 @@ COLORED_ID_LABELS = [
     "Eyes", "Restrictions", "Card No", "Valid From", "Valid To",
 ]
 
+# A held-out test with a fictional Kartu-Keluarga-style mockup (a tall A4
+# page, not a card) found it still fired at 0.50 confidence when placed
+# edge-to-edge with no rotation — weak compared to a real ~0.95+ detection,
+# but real. Root cause: none of the distractor kinds above are tall/
+# portrait-shaped, so edge-to-edge training never covered that aspect
+# ratio at all, positive or negative. This kind fills that gap.
+PORTRAIT_DOCUMENT_TITLES = [
+    "HOUSEHOLD REGISTER", "PROPERTY DEED", "BIRTH CERTIFICATE",
+    "ENROLLMENT RECORD", "TAX ASSESSMENT", "MEDICAL RECORD",
+]
+
 
 def _random_words(n: int) -> str:
     return " ".join(fake.word() for _ in range(n)).upper()
@@ -294,7 +305,47 @@ def render_distractor() -> Image.Image:
     hard negative for detection training. Returns an RGBA image so it can
     be rotated/pasted onto a scene the same way render_ktp()'s output is.
     """
-    kind = random.choice(["card", "photo_panel", "receipt", "colored_id_card"])
+    kind = random.choice(["card", "photo_panel", "receipt", "colored_id_card", "portrait_document"])
+
+    if kind == "portrait_document":
+        # A4-ish proportions (~0.71 width:height), not card-shaped at all —
+        # a bordered title block, a few label/value lines, then a table
+        # with a header row and several data rows, mimicking a real
+        # household-register-style document.
+        w = random.randint(560, 680)
+        h = round(w / random.uniform(0.65, 0.75))
+        img = Image.new("RGBA", (w, h), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([(15, 15), (w - 15, h - 15)], outline=(0, 0, 0), width=2)
+
+        draw.text((w // 2, 45), random.choice(PORTRAIT_DOCUMENT_TITLES),
+                   font=ImageFont.truetype(FONT_BOLD, 18), fill=(0, 0, 0), anchor="mm")
+        draw.text((w // 2, 68), f"No. {random.randint(1000, 9999)}{_random_words(1)}",
+                   font=ImageFont.truetype(FONT_REG, 11), fill=(0, 0, 0), anchor="mm")
+
+        fl = ImageFont.truetype(FONT_REG, 10)
+        y = 95
+        for _ in range(random.randint(3, 5)):
+            draw.text((35, y), _random_words(2), font=fl, fill=(0, 0, 0))
+            draw.text((int(w * 0.4), y), f": {_random_words(random.randint(1, 3))}", font=fl, fill=(0, 0, 0))
+            y += 22
+
+        y += 15
+        col_x = [35, int(w * 0.15), int(w * 0.45), int(w * 0.75)]
+        headers = ["No", "Name", "ID", "Status"]
+        fb = ImageFont.truetype(FONT_BOLD, 9)
+        for cx, htext in zip(col_x, headers):
+            draw.text((cx, y), htext, font=fb, fill=(0, 0, 0))
+        draw.line([(30, y + 16), (w - 30, y + 16)], fill=(0, 0, 0), width=1)
+        y += 22
+        for i in range(random.randint(3, 6)):
+            if y > h - 30:
+                break
+            draw.text((col_x[0], y), str(i + 1), font=fl, fill=(0, 0, 0))
+            for cx in col_x[1:]:
+                draw.text((cx, y), _random_words(random.randint(1, 2)), font=fl, fill=(0, 0, 0))
+            y += 20
+        return img
 
     if kind == "card":
         w, h = random.randint(380, 700), random.randint(220, 440)

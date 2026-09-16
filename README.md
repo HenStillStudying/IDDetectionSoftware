@@ -514,6 +514,14 @@ than redesigning the generator off a single sample.
   none of the distractor kinds are tall/portrait-shaped (KK is a full A4
   page, ~620×876), so edge-to-edge training never covered that aspect
   ratio. Net effect of this round: two confident false positives fixed,
-  one much weaker one introduced. Left undone for now rather than chasing
-  a fourth round (diminishing returns / whack-a-mole risk) — a
-  tall/portrait-page distractor kind would likely close it if revisited.
+  one much weaker one introduced. Left undone at the time rather than
+  chasing a fourth round in the same session (diminishing returns /
+  whack-a-mole risk).
+  **Revisited and fixed**: added a `portrait_document` distractor kind
+  (`ktp_dataset_generator.py`) — A4-ish proportions (~0.65-0.75
+  width:height, vs. every other distractor's landscape/card shape), a
+  bordered title block, a few label/value lines, then a header row and
+  several data rows, mimicking a household-register-style document.
+  Retrained (mAP50 0.995, unchanged) — the KK mockup that previously fired
+  at 0.50 confidence now correctly rejects, and `evaluate_pipeline.py`
+  gives identical per-field numbers to before (no regression).
