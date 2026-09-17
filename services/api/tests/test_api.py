@@ -1,4 +1,6 @@
 import io
+import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, patch
 
 import fakeredis
@@ -9,7 +11,11 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.main import app
+from app.pipeline import KtpExtractionPipeline
 from app.redis_pool import get_redis_pool
+from app.stub_models import StubOcrService
+from ktp_interfaces import DetectionService
+from ktp_schema import BoundingBox
 
 
 @pytest.fixture
@@ -161,3 +167,42 @@ def test_job_polling_is_not_rate_limited(client):
     for _ in range(20):
         resp = client.get("/v1/ktp/jobs/does-not-exist")
         assert resp.status_code == 404  # never 429
+
+
+class _SlowDetectionService(DetectionService):
+    """Sleeps synchronously like a real CPU-bound model call would — used
+    to prove /v1/ktp/extract doesn't block the event loop while it runs,
+    not just that its response is unchanged.
+    """
+
+    def detect_and_rectify(self, image):
+        time.sleep(0.3)
+        width, height = image.size
+        return image, BoundingBox(x1=0, y1=0, x2=width, y2=height, detection_confidence=1.0)
+
+
+def test_extract_does_not_block_the_event_loop(client):
+    # Regression test for a real bug: pipeline.run() used to be called
+    # directly inside the async handler with no threading, which blocked
+    # the whole process (including every other concurrent request) for the
+    # full duration of each request. Two concurrent 0.3s requests should
+    # overlap and finish in well under 2x0.3s if the fix holds; before the
+    # fix, they'd serialize to ~0.6s+.
+    slow_pipeline = KtpExtractionPipeline(_SlowDetectionService(), StubOcrService())
+    with patch("app.main.pipeline", slow_pipeline):
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    client.post,
+                    "/v1/ktp/extract",
+                    files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+                )
+                for _ in range(2)
+            ]
+            responses = [f.result() for f in futures]
+        elapsed = time.perf_counter() - started
+
+    for resp in responses:
+        assert resp.status_code == 200
+    assert elapsed < 0.5

@@ -11,6 +11,7 @@ GPU-bound OCR stage scale independently of the cheap detection stage.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 from contextlib import asynccontextmanager
@@ -91,5 +92,9 @@ async def extract(file: UploadFile, ocr_service: OcrService = Depends(get_ocr_se
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(status_code=422, detail="Could not decode uploaded image") from exc
 
-    fields = ocr_service.extract_fields(image)
+    # extract_fields() is synchronous and does real CPU-bound OCR inference
+    # (multiple seconds) — run it off the event loop so one request doesn't
+    # block every other request this process is serving, including health
+    # checks.
+    fields = await asyncio.to_thread(ocr_service.extract_fields, image)
     return fields.model_dump(mode="json")

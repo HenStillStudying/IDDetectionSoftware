@@ -996,3 +996,43 @@ than redesigning the generator off a single sample.
     tests — without it, one test hitting the limit would silently poison
     every later test sharing the same test-client source IP. `slowapi`
     pinned like every other dependency now. 65 tests passing (3 new).
+- **Direct code review of `services/api` and `services/ocr`, scoped to
+  the actually-served code rather than the wider repo (training scripts,
+  eval harnesses) — cheap to do directly rather than via a fresh
+  subagent, since the context of what's important here was already
+  built up over the whole session.** Found and fixed one significant bug:
+  both services' `/v1/ktp/extract` and `/v1/ocr/extract` handlers called
+  their real work (`pipeline.run()`, `ocr_service.extract_fields()`) —
+  synchronous, CPU-bound, 2s-13s depending on engine — directly inside an
+  `async def` handler with no `asyncio.to_thread`. Since uvicorn's
+  default run mode is one process with one event loop, this blocked the
+  *entire process* for the full duration of every request — not just
+  that caller, but every other concurrent request the instance was
+  serving, including its own `/health` check (a real risk: a load
+  balancer's health check timing out mid-request could kill the instance
+  while it's actually fine). `worker.py` already had the correct pattern
+  (`await asyncio.to_thread(ctx["pipeline"].run, image_bytes)`); applied
+  the same fix to both HTTP handlers.
+  Proven, not just applied: wrote a concurrency regression test per
+  service (a slow stub service, two requests fired concurrently via
+  `ThreadPoolExecutor`, asserting they overlap rather than serialize),
+  then deliberately reverted each fix and re-ran its test to confirm it
+  actually fails without the fix (0.6s+, serialized) before trusting it
+  passes because of the fix (under 0.5s, concurrent) — not just that the
+  test happened to pass. That check caught a second, subtler bug in the
+  process: `services/ocr/tests/test_ocr_app.py` built its `TestClient`
+  as a bare module-level instance rather than via `with TestClient(app)`,
+  which (confirmed empirically, not assumed) gives each request its own
+  isolated event loop rather than sharing one — so the concurrency test
+  passed regardless of whether the handler fix was even applied,
+  silently testing thread-level parallelism instead of the actual
+  shared-event-loop behavior a real deployed process has. Fixed by
+  converting that test file to the same fixture-based
+  `with TestClient(app) as client` pattern `test_api.py` already used.
+  67 tests passing (2 new).
+  One minor finding from the same review left undone: `redis_pool.py`'s
+  lazy singleton (`if _pool is None: _pool = await create_pool(...)`) has
+  an unsynchronized check-and-create race — two requests arriving before
+  the pool exists could both create one, leaking the loser. Narrow
+  window (only matters at cold start), low impact (a wasted connection
+  pool, not a correctness bug) — noted here rather than fixed this round.

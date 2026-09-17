@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -79,7 +80,11 @@ async def health() -> dict:
 @limiter.limit("15/minute")
 async def extract(request: Request, file: UploadFile):
     contents = await _read_and_validate_upload(file)
-    result = pipeline.run(contents)
+    # pipeline.run() is synchronous and does real CPU/network work (model
+    # inference, an HTTP call to the OCR service) — run it off the event
+    # loop so one request's multi-second processing doesn't block every
+    # other request this process is serving, including health checks.
+    result = await asyncio.to_thread(pipeline.run, contents)
 
     status_code = 200
     if result.status == ExtractionStatus.INVALID_IMAGE:
