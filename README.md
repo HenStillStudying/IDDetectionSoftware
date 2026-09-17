@@ -36,6 +36,7 @@ pip install -r services/api/requirements-dev.txt
 pip install -e services/detection          # optional — real detection instead of stub
 pip install -e services/ocr                # optional — needed to run the OCR service at all
 pip install -r services/ocr/requirements-dev.txt
+pip install -e "services/ocr[onnx]"        # optional — only needed for KTP_OCR_ENGINE=onnxruntime
 ```
 
 ## Run (four processes)
@@ -945,12 +946,30 @@ than redesigning the generator off a single sample.
     be used, not an option — `KTP_REDIS_URL`'s no-password default still
     exists for a quick local check, but real usage should always set a
     password given what Redis holds here.
-  - **Left as documented, prioritized gaps** (not fixed this round): no
+  - **Dependency version pinning — fixed.** Every declared dependency
+    across both services (`requirements.txt`/`requirements-dev.txt` in
+    `services/api` and `services/ocr`) and all three internal packages'
+    `pyproject.toml` files (`libs`, `services/detection`, `services/ocr`)
+    used a bare `>=` with no upper bound — a future `pip install` could
+    silently pull a newer, compromised, or simply breaking version across
+    a large surface (fastapi, pillow, paddleocr, paddlepaddle,
+    ultralytics, etc.). Pinned every one to its exact currently-installed
+    version (via `pip freeze`, not guessed) — versions already proven to
+    work together in this exact environment, not an upgrade or downgrade
+    of anything. Kept shared dependencies (`pillow`, `numpy`) at the same
+    exact version across every file that declares them, to avoid a
+    resolver conflict between packages. Also found and fixed a related,
+    adjacent gap while at it: `onnxruntime` (needed for the
+    `KTP_OCR_ENGINE=onnxruntime` path integrated last session) was never
+    declared as a dependency anywhere at all — added as a pinned optional
+    extra (`pip install -e "services/ocr[onnx]"`) rather than a required
+    one, matching that path's already-opt-in design.
+    Verified rather than assumed: the full test suite still passes, and
+    `pip install --dry-run` was run against every changed
+    requirements/pyproject file (including the new `onnx` extra) to
+    confirm they all still resolve cleanly with no version conflicts.
+  - **Left as documented, prioritized gap** (not fixed this round): no
     rate limiting — every request is multi-second ML inference, a real
-    DoS/cost vector once publicly reachable; the slowest of the remaining
-    two to fix properly (needs a real design decision: per-IP vs per-key,
-    thresholds, a new dependency). No dependency version pinning anywhere
-    (`>=` only, across a large surface — fastapi, pillow, paddleocr,
-    paddlepaddle, ultralytics, onnxruntime, etc.) — a supply-chain risk,
-    lower likelihood than the other two but potentially high impact if it
-    ever hits.
+    DoS/cost vector once publicly reachable; the slowest of the original
+    three findings to fix properly (needs a real design decision: per-IP
+    vs per-key, thresholds, a new dependency).
