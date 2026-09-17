@@ -41,8 +41,10 @@ pip install -r services/ocr/requirements-dev.txt
 ## Run (four processes)
 
 ```bash
-# terminal 1 — Redis (backs the async job queue)
-docker run -d --name ktp-redis -p 6379:6379 redis:7-alpine
+# terminal 1 — Redis (backs the async job queue), password-protected —
+# pick your own password, don't reuse this example anywhere real
+docker run -d --name ktp-redis -p 6379:6379 redis:7-alpine \
+  redis-server --requirepass "your-own-password-here"
 
 # terminal 2 — OCR service
 cd services/ocr
@@ -52,18 +54,26 @@ uvicorn ocr_app.main:app --port 8001
 cd services/api
 KTP_DETECTION_WEIGHTS=../../training/runs/ktp_detector/weights/best.pt \
 KTP_OCR_SERVICE_URL=http://127.0.0.1:8001 \
+KTP_REDIS_URL=redis://:your-own-password-here@localhost:6379 \
 uvicorn app.main:app --reload
 
 # terminal 4 — worker (processes /v1/ktp/jobs submissions)
 cd services/api
 KTP_DETECTION_WEIGHTS=../../training/runs/ktp_detector/weights/best.pt \
 KTP_OCR_SERVICE_URL=http://127.0.0.1:8001 \
+KTP_REDIS_URL=redis://:your-own-password-here@localhost:6379 \
 arq app.worker.WorkerSettings
 ```
 
 Without `KTP_DETECTION_WEIGHTS`/`KTP_OCR_SERVICE_URL` the API and worker
 still run, using stubs for whichever one is missing. Without Redis running,
 `/v1/ktp/extract` (sync) still works — only `/v1/ktp/jobs` (async) needs it.
+
+`KTP_REDIS_URL` defaults to `redis://localhost:6379` (no password) if
+unset — fine for a quick local check, but Redis transiently holds raw
+uploaded KTP photo bytes as job data (see "Data handling & compliance"
+above), so the password-protected form shown here is the one actually
+meant to be used, not just an option.
 
 Optionally, add these to terminal 2 to use the ONNX Runtime OCR engine
 instead of native PaddlePaddle — confirmed ~3-7x faster on CPU with zero
@@ -918,17 +928,29 @@ than redesigning the generator off a single sample.
     for the first; monkeypatching `MAX_IMAGE_PIXELS` down for the second,
     to keep the test fast rather than constructing an actual huge image).
     62 tests passing.
-  - **Left as documented, prioritized gaps** (not fixed this round):
-    Redis has no authentication (`redis://localhost:6379`, no password) —
-    the most dangerous of the three, since Redis transiently holds raw
-    uploaded KTP photo bytes and unauthenticated Redis is one of the most
-    commonly mass-scanned-and-exploited misconfigurations on the
-    internet; matters once this is reachable beyond localhost, not
-    before. No rate limiting — every request is multi-second ML
-    inference, a real DoS/cost vector once publicly reachable; the
-    slowest of the three to fix properly (needs a real design decision:
-    per-IP vs per-key, thresholds, a new dependency). No dependency
-    version pinning anywhere (`>=` only, across a large surface —
-    fastapi, pillow, paddleocr, paddlepaddle, ultralytics, onnxruntime,
-    etc.) — a supply-chain risk, lower likelihood than the other two but
-    potentially high impact if it ever hits.
+  - **Redis authentication — fixed next, the most dangerous of the three
+    findings.** Redis had no password (`redis://localhost:6379`) despite
+    transiently holding raw uploaded KTP photo bytes as job data —
+    unauthenticated Redis is one of the most commonly mass-scanned-and-
+    exploited misconfigurations on the internet. No application code
+    needed changing — `redis-py`/`arq` both already support credentials
+    embedded in the connection URL — so this was purely an operational
+    fix: start Redis with `--requirepass`, set `KTP_REDIS_URL` to match.
+    Verified, not just documented: confirmed an unauthenticated connection
+    is actually rejected (`AuthenticationError`) and the correct password
+    is accepted, then ran the full async job flow end-to-end (enqueue via
+    the API → picked up by the worker → polled to completion) against the
+    password-protected Redis to confirm nothing else broke. The README's
+    run instructions now show the authenticated form as the one meant to
+    be used, not an option — `KTP_REDIS_URL`'s no-password default still
+    exists for a quick local check, but real usage should always set a
+    password given what Redis holds here.
+  - **Left as documented, prioritized gaps** (not fixed this round): no
+    rate limiting — every request is multi-second ML inference, a real
+    DoS/cost vector once publicly reachable; the slowest of the remaining
+    two to fix properly (needs a real design decision: per-IP vs per-key,
+    thresholds, a new dependency). No dependency version pinning anywhere
+    (`>=` only, across a large surface — fastapi, pillow, paddleocr,
+    paddlepaddle, ultralytics, onnxruntime, etc.) — a supply-chain risk,
+    lower likelihood than the other two but potentially high impact if it
+    ever hits.
