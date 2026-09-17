@@ -21,6 +21,11 @@ def client():
     # pool reused across calls.
     fake_pool = ArqRedis(connection_pool=fakeredis.FakeAsyncRedis().connection_pool)
     app.dependency_overrides[get_redis_pool] = lambda: fake_pool
+    # The rate limiter's in-memory counters live on the module-level `app`
+    # object, so without resetting them here, one test hitting the limit
+    # would silently poison every later test sharing the same test-client
+    # source IP.
+    app.state.limiter.reset()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.pop(get_redis_pool, None)
@@ -114,3 +119,45 @@ def test_job_failure_error_message_is_sanitized(client):
     assert body["error"] == "Job processing failed. Check server logs for details."
     assert "secret" not in body["error"]
     assert "xyz123" not in body["error"]
+
+
+def test_extract_is_rate_limited_after_threshold(client):
+    # The limit is 15/minute; the 16th request from the same (test-client)
+    # source IP within that window should be rejected rather than doing
+    # real work.
+    for _ in range(15):
+        resp = client.post(
+            "/v1/ktp/extract",
+            files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+        )
+        assert resp.status_code == 200
+
+    resp = client.post(
+        "/v1/ktp/extract",
+        files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+    )
+    assert resp.status_code == 429
+
+
+def test_create_job_is_rate_limited_after_threshold(client):
+    for _ in range(15):
+        resp = client.post(
+            "/v1/ktp/jobs",
+            files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+        )
+        assert resp.status_code == 200
+
+    resp = client.post(
+        "/v1/ktp/jobs",
+        files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+    )
+    assert resp.status_code == 429
+
+
+def test_job_polling_is_not_rate_limited(client):
+    # Polling an existing job is a cheap Redis lookup, not the expensive
+    # work the limit exists to protect — a client checking its own job's
+    # status repeatedly shouldn't share that budget.
+    for _ in range(20):
+        resp = client.get("/v1/ktp/jobs/does-not-exist")
+        assert resp.status_code == 404  # never 429

@@ -4,8 +4,11 @@ import logging
 from pathlib import Path
 
 from arq.jobs import Job, JobStatus
-from fastapi import Depends, FastAPI, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from ktp_schema import ExtractionStatus
 
@@ -20,6 +23,16 @@ app = FastAPI(
     version="0.1.0",
     description="Detects an Indonesian KTP card in a photo and extracts its fields via OCR.",
 )
+
+# In-memory storage (the library's default), not Redis-backed: only the API
+# process ever handles HTTP requests (the worker doesn't), and this project
+# isn't horizontally scaled, so per-process state is correct here, not a
+# shortcut — Redis-backed storage would be solving a scaling problem this
+# deployment doesn't have. Revisit if the API is ever run as multiple
+# replicas behind a load balancer.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -63,7 +76,8 @@ async def health() -> dict:
 
 
 @app.post("/v1/ktp/extract", dependencies=[Depends(require_api_key)])
-async def extract(file: UploadFile):
+@limiter.limit("15/minute")
+async def extract(request: Request, file: UploadFile):
     contents = await _read_and_validate_upload(file)
     result = pipeline.run(contents)
 
@@ -77,7 +91,8 @@ async def extract(file: UploadFile):
 
 
 @app.post("/v1/ktp/jobs", dependencies=[Depends(require_api_key)])
-async def create_job(file: UploadFile, redis=Depends(get_redis_pool)):
+@limiter.limit("15/minute")
+async def create_job(request: Request, file: UploadFile, redis=Depends(get_redis_pool)):
     contents = await _read_and_validate_upload(file)
     job = await redis.enqueue_job("process_ktp_extraction", contents)
     return {"job_id": job.job_id, "status": JobStatus.queued.value}

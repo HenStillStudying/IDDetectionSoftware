@@ -968,8 +968,31 @@ than redesigning the generator off a single sample.
     `pip install --dry-run` was run against every changed
     requirements/pyproject file (including the new `onnx` extra) to
     confirm they all still resolve cleanly with no version conflicts.
-  - **Left as documented, prioritized gap** (not fixed this round): no
-    rate limiting — every request is multi-second ML inference, a real
-    DoS/cost vector once publicly reachable; the slowest of the original
-    three findings to fix properly (needs a real design decision: per-IP
-    vs per-key, thresholds, a new dependency).
+  - **Rate limiting — fixed, closing out all five findings from the
+    original audit.** Added `slowapi` (15 requests/minute per IP) to the
+    two expensive endpoints, `/v1/ktp/extract` and `POST /v1/ktp/jobs` —
+    each does real ML inference. Deliberately left `GET
+    /v1/ktp/jobs/{job_id}` (polling) unlimited: it's a cheap Redis lookup,
+    not the work the limit exists to protect, and a client checking its
+    own job's status repeatedly shouldn't share that budget. Limited by
+    IP, not API key, since the current single-shared-key auth model means
+    every caller would share one bucket anyway — per-key becomes the
+    better fit once per-user auth exists (already a "before real
+    production" PII item).
+    One design decision changed during implementation, worth being
+    explicit about: the plan called for Redis-backed limit storage, on
+    the reasoning that this project "already runs multiple processes."
+    That reasoning didn't survive contact with the actual architecture —
+    only the API process ever handles HTTP requests (the worker doesn't),
+    and this isn't horizontally scaled, so in-memory storage (the
+    library's default) is correct here, not a shortcut; Redis-backed
+    storage would've been solving a scaling problem this deployment
+    doesn't have. Revisit if the API is ever run as multiple replicas
+    behind a load balancer.
+    Verified live, not just unit-tested: 15 requests against a running
+    instance succeeded, the 16th and 17th both returned 429 with a clear
+    message, and polling remained unaffected throughout. Also added a
+    `client` fixture reset for the limiter's in-memory state between
+    tests — without it, one test hitting the limit would silently poison
+    every later test sharing the same test-client source IP. `slowapi`
+    pinned like every other dependency now. 65 tests passing (3 new).
