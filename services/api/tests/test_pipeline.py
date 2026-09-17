@@ -6,7 +6,7 @@ from PIL.Image import Image as PILImage
 from app.pipeline import MAX_UPLOAD_DIMENSION, KtpExtractionPipeline
 from app.stub_models import StubOcrService
 from ktp_interfaces import DetectionService
-from ktp_schema import BoundingBox
+from ktp_schema import BoundingBox, ExtractionStatus
 
 
 class _RecordingDetectionService(DetectionService):
@@ -49,3 +49,19 @@ def test_small_upload_is_not_resized():
     pipeline.run(_photo_bytes((200, 120)))
 
     assert detection.received_size == (200, 120)
+
+
+def test_decompression_bomb_image_is_rejected_cleanly(monkeypatch):
+    # Pillow's own default (Image.MAX_IMAGE_PIXELS) already prevents the
+    # real memory-exhaustion risk; this only checks that hitting it returns
+    # a clean validation response instead of an unhandled 500. Lowering the
+    # limit here (rather than constructing an actual huge image) keeps the
+    # test fast.
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    detection = _RecordingDetectionService()
+    pipeline = KtpExtractionPipeline(detection, StubOcrService())
+
+    result = pipeline.run(_photo_bytes((200, 120)))  # 24,000 px > the lowered limit
+
+    assert result.status == ExtractionStatus.INVALID_IMAGE
+    assert detection.received_size is None  # never reached detection

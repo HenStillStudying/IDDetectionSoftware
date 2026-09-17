@@ -895,3 +895,40 @@ than redesigning the generator off a single sample.
   precedes the value there. Final result: **all 17 fields correct on the
   real card again**, `evaluate_pipeline.py` numbers unchanged from
   baseline, 57 tests passing.
+- **Security audit — grounded in the actual code, not a generic
+  checklist.** Found five real findings, two fixed immediately (fastest,
+  lowest-risk to change), three left as documented, prioritized gaps
+  since they matter most once this is reachable by anyone but the
+  operator, not right now:
+  - **Fixed**: `/v1/ktp/jobs/{job_id}` was returning a failed job's raw
+    exception message (`str(exc)`) straight to the client — a real
+    information-disclosure risk, since an internal error could contain
+    paths or other implementation details. Now logs the real exception
+    server-side (`logger.exception`) and returns a generic message.
+  - **Fixed**: Pillow's own default decompression-bomb protection
+    (`Image.MAX_IMAGE_PIXELS`, ~89M pixels) already prevents the real
+    memory-exhaustion risk from a maliciously crafted "image bomb," but
+    `DecompressionBombError` wasn't in `pipeline.py`'s
+    `except (UnidentifiedImageError, OSError)` tuple (confirmed via its
+    MRO: it's a direct `Exception` subclass, not related to either), so
+    hitting it produced an unhandled 500 instead of the same clean
+    `invalid_image` response any other bad upload gets. Not a
+    vulnerability by itself — a robustness/error-handling gap.
+  - Both covered by regression tests (mocking a failed job's `Job.result`
+    for the first; monkeypatching `MAX_IMAGE_PIXELS` down for the second,
+    to keep the test fast rather than constructing an actual huge image).
+    62 tests passing.
+  - **Left as documented, prioritized gaps** (not fixed this round):
+    Redis has no authentication (`redis://localhost:6379`, no password) —
+    the most dangerous of the three, since Redis transiently holds raw
+    uploaded KTP photo bytes and unauthenticated Redis is one of the most
+    commonly mass-scanned-and-exploited misconfigurations on the
+    internet; matters once this is reachable beyond localhost, not
+    before. No rate limiting — every request is multi-second ML
+    inference, a real DoS/cost vector once publicly reachable; the
+    slowest of the three to fix properly (needs a real design decision:
+    per-IP vs per-key, thresholds, a new dependency). No dependency
+    version pinning anywhere (`>=` only, across a large surface —
+    fastapi, pillow, paddleocr, paddlepaddle, ultralytics, onnxruntime,
+    etc.) — a supply-chain risk, lower likelihood than the other two but
+    potentially high impact if it ever hits.

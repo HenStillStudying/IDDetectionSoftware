@@ -52,6 +52,17 @@ class KtpExtractionPipeline:
                 warnings=["Could not decode the uploaded file as an image."],
                 processing_time_ms=_elapsed_ms(started),
             )
+        except Image.DecompressionBombError:
+            # Pillow's own default limit (Image.MAX_IMAGE_PIXELS) already
+            # prevents the actual memory-exhaustion risk here — this is
+            # just making sure a maliciously huge image gets the same
+            # clean validation response as any other bad upload, not an
+            # unhandled 500.
+            return KtpExtractionResult(
+                status=ExtractionStatus.INVALID_IMAGE,
+                warnings=["Image exceeds the maximum allowed pixel count."],
+                processing_time_ms=_elapsed_ms(started),
+            )
 
         detection = self._detection_service.detect_and_rectify(image)
         if detection is None:

@@ -1,8 +1,10 @@
 import io
+from unittest.mock import AsyncMock, patch
 
 import fakeredis
 import pytest
 from arq.connections import ArqRedis
+from arq.jobs import JobStatus
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -93,3 +95,22 @@ def test_job_lifecycle_enqueues_and_can_be_polled(client):
 def test_job_not_found(client):
     resp = client.get("/v1/ktp/jobs/does-not-exist")
     assert resp.status_code == 404
+
+
+def test_job_failure_error_message_is_sanitized(client):
+    # A failed job's real exception (which can contain internal paths or
+    # other implementation details) must never reach the client directly —
+    # only a generic message, with the real one logged server-side instead.
+    real_error = RuntimeError("/internal/secret/path leaked, api_key=xyz123")
+    with (
+        patch("app.main.Job.status", new=AsyncMock(return_value=JobStatus.complete)),
+        patch("app.main.Job.result", new=AsyncMock(side_effect=real_error)),
+    ):
+        resp = client.get("/v1/ktp/jobs/some-id")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "Job processing failed. Check server logs for details."
+    assert "secret" not in body["error"]
+    assert "xyz123" not in body["error"]

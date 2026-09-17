@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from arq.jobs import Job, JobStatus
@@ -11,6 +12,8 @@ from ktp_schema import ExtractionStatus
 from .config import settings
 from .pipeline_factory import build_pipeline
 from .redis_pool import get_redis_pool
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="KTP Identification API",
@@ -91,7 +94,11 @@ async def get_job(job_id: str, redis=Depends(get_redis_pool)):
     if status == JobStatus.complete:
         try:
             response["result"] = await job.result(timeout=5)
-        except Exception as exc:  # noqa: BLE001 - surface any pipeline failure on the job
+        except Exception:  # noqa: BLE001 - surface any pipeline failure on the job
+            # Log the real exception server-side only — the raw message can
+            # contain internal details (paths, library internals) that
+            # shouldn't go back to whoever is polling this job.
+            logger.exception("Job %s failed during processing", job_id)
             response["status"] = "failed"
-            response["error"] = str(exc)
+            response["error"] = "Job processing failed. Check server logs for details."
     return response
