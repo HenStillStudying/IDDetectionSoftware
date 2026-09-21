@@ -76,6 +76,15 @@ uploaded KTP photo bytes as job data (see "Data handling & compliance"
 above), so the password-protected form shown here is the one actually
 meant to be used, not just an option.
 
+Optionally, set `KTP_OCR_INTERNAL_KEY` to the same value on both terminal 2
+(the OCR service) and terminal 3/4 (the API/worker, where it's read as
+`KTP_OCR_INTERNAL_KEY` and passed to `RemoteOcrService`) to require a
+shared secret between them. Off by default — nothing in this repo's
+deployment config exposes the OCR service's port beyond localhost today —
+but it has no auth of its own otherwise, so this is a free defense-in-depth
+layer worth turning on once a shared network (e.g. docker-compose) is
+introduced.
+
 Optionally, add these to terminal 2 to use the ONNX Runtime OCR engine
 instead of native PaddlePaddle — confirmed ~3-7x faster on CPU with zero
 accuracy cost (see Status below), but opt-in since it needs a manual
@@ -1036,3 +1045,102 @@ than redesigning the generator off a single sample.
   the pool exists could both create one, leaking the loser. Narrow
   window (only matters at cold start), low impact (a wasted connection
   pool, not a correctness bug) — noted here rather than fixed this round.
+- **A formal multi-hunter security audit (5 independent parallel reviewers,
+  each assigned a distinct attack-class angle) went deeper than the direct
+  review above and found 3 further real issues, plus 2 smaller ones — full
+  report in this run's output.** First and most significant, **fixed**:
+  both `services/api` and `services/ocr`'s upload handlers checked the
+  request body's size (`_read_and_validate_upload`'s
+  `len(contents) > max_upload_bytes`) only *after* `await file.read()` had
+  already fully received it — verified directly against the installed
+  Starlette/FastAPI source that FastAPI parses the full multipart body
+  before any `Depends()`-based check or the `@limiter.limit` rate limiter
+  ever runs, and that Starlette's multipart parser applies no size cap to
+  file parts at all (only non-file form fields get its `max_part_size`
+  check) — a file part spools straight to disk past 1MB with no upper
+  bound. Net effect: a client — including an unauthenticated one, since
+  `services/ocr` has no auth at all — could send a request body far beyond
+  the declared 10MB limit and have the server fully absorb it (memory +
+  disk) before finally rejecting it. Fixed with a new ASGI-level
+  `MaxBodySizeMiddleware` (added to both services, duplicated rather than
+  shared since the two services already keep independent upload-size
+  constants) that rejects an oversized body before FastAPI's own parsing
+  ever touches it: via `Content-Length` up front for a client that
+  declares one honestly, and via a running byte count over the raw ASGI
+  receive channel for chunked/absent-`Content-Length` requests. Verified,
+  not just applied: added regression tests asserting on the middleware's
+  distinctly-worded rejection message (not just a 413 from somewhere), then
+  deliberately disabled the middleware and confirmed those tests correctly
+  failed (falling back to the pre-existing endpoint-level message) before
+  re-enabling it. 75 tests passing (6 new). The other 4 findings from this
+  audit (a rate-limit gap on failed-auth requests, an unbounded-by-design
+  Redis job-data retention window, a missing `DecompressionBombError`
+  handler in `services/ocr` mirroring one already fixed in `pipeline.py`,
+  and a dead-code-today `ValueError` in `libs/ktp_schema`'s `parse_nik`)
+  are documented in the audit report, not yet fixed as of this entry.
+- **Second audit finding, fixed: the rate limit didn't apply to requests
+  that failed auth.** `@limiter.limit("15/minute")` only ran its check when
+  the decorated endpoint function's body actually executed — but FastAPI
+  resolves `dependencies=[Depends(require_api_key)]` *before* calling that
+  function, so a request with a missing/wrong API key raised 401 during
+  dependency resolution and never reached the decorator's counter at all.
+  Verified empirically before fixing: 30 wrong-key requests against
+  `/v1/ktp/extract` returned 30×401, never once 429. Fixed by switching
+  from per-route `@limiter.limit(...)` decorators to `default_limits=
+  ["15/minute"]` on the `Limiter` plus `app.add_middleware(SlowAPIMiddleware)`
+  — slowapi's middleware runs before FastAPI's routing/dependency
+  resolution, so the limit now applies regardless of whether auth
+  eventually succeeds or fails. Routes that should stay unlimited
+  (`/health`, `/demo`, job polling) now opt out explicitly via
+  `@limiter.exempt` instead of the old model where limiting only ever
+  applied to routes that opted in. Verified the same way as the buffering
+  fix: added a regression test asserting failed-auth requests eventually
+  hit 429, confirmed it (and the two pre-existing rate-limit tests) fail
+  when the middleware is disabled, then restored it. 76 tests passing
+  (1 new).
+- **Remaining audit findings, fixed — closing out all issues from the
+  formal audit.**
+  - `services/ocr` was missing the `Image.DecompressionBombError` handler
+    already fixed once in `services/api/app/pipeline.py`. Fixed identically
+    (same except clause, same 422 response).
+  - `libs/ktp_schema`'s `parse_nik()` could raise a raw, unlabeled
+    `datetime.date` `ValueError` on a NIK encoding Feb 29 that resolves to
+    a non-leap year — `validate_nik()`'s day/month check is deliberately
+    lenient about this since it can't know the real century from a 2-digit
+    year. Currently dead code in the live request path (only
+    `validate_nik` is called there), but `parse_nik` is public API. Fixed
+    by wrapping the date construction and re-raising as `parse_nik`'s own
+    labeled "Invalid NIK" error.
+  - The API key comparison (`x_api_key != settings.api_key`) was a plain
+    string comparison, not constant-time — switched to
+    `hmac.compare_digest`. Also closed a real, related test gap the audit
+    flagged: `require_api_key` had zero test coverage before this (exactly
+    the code path the rate-limit-bypass bug above lived in undetected).
+  - `NIK_PATTERN` used Python's default Unicode-aware `\d`, so a NIK built
+    from Unicode digit look-alikes (e.g. a fullwidth zero) could pass
+    validation and slip past the exact-string "00" region-code checks
+    while still evaluating to a real zero under `int()`. Fixed by compiling
+    with `re.ASCII`.
+  - `services/ocr` had no auth of its own at all, relying entirely on
+    network position — a real gap once any shared-network deployment
+    exists, though not yet materialized (no docker-compose/orchestration
+    config exists in this repo). Added an optional shared-secret check
+    (`KTP_OCR_INTERNAL_KEY`, off by default) mirroring `require_api_key`,
+    with `RemoteOcrService` sending it as `X-Internal-Key` when configured
+    on the api side too.
+  - All five verified the same way as every other fix this session: a
+    regression test per fix, each confirmed to fail when the fix is
+    reverted, then restored. 87 tests passing (11 new).
+- **Third audit finding, fixed: raw KTP photo bytes no longer default to a
+  24-hour Redis lifetime.** `redis.enqueue_job(...)` was called with no
+  `_expires`, so the job's argument data — the raw uploaded photo bytes —
+  inherited arq's default expiry, confirmed by reading arq's own installed
+  source: `constants.expires_extra_ms = 86_400_000` (24 hours), a generic
+  scheduling safety margin, not a deliberate PII retention decision. Real
+  processing finishes in seconds. Fixed by passing an explicit
+  `_expires=JOB_EXPIRES_SECONDS` (10 minutes — generous headroom for arq's
+  own retry defaults: up to 5 tries, 300s timeout each — without leaving
+  the raw photo around anywhere near a full day). Verified the same way as
+  the other two fixes: a regression test spies on the actual
+  `enqueue_job(...)` call and asserts `_expires` is set, confirmed it fails
+  without the fix, restored. 77 tests passing (1 new).

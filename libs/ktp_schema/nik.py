@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-NIK_PATTERN = re.compile(r"^\d{16}$")
+# re.ASCII: \d is Unicode-aware by default, matching any Unicode decimal
+# digit codepoint (e.g. U+FF10 FULLWIDTH DIGIT ZERO), not just 0-9. Without
+# it, a NIK built from Unicode digit look-alikes could pass this pattern
+# and validate_nik's exact-string "00" checks below while still evaluating
+# to a real zero under int() — restricting to ASCII digits closes that gap.
+NIK_PATTERN = re.compile(r"^\d{16}$", re.ASCII)
 
 
 class NikGender(str, Enum):
@@ -78,7 +83,16 @@ def parse_nik(nik: str, reference_year: int | None = None) -> NikInfo:
     day = day_raw - 40 if day_raw > 40 else day_raw
     year = _resolve_birth_year(year_2digit, reference_year)
 
-    birth_date = datetime.date(year, month, day)
+    # validate_nik()'s day/month check above is deliberately lenient about
+    # Feb 29 (it can't know the real century-resolved leap-year-ness from a
+    # 2-digit year alone), so a NIK can pass it and still resolve here to a
+    # year where Feb 29 doesn't exist — construct the date defensively
+    # rather than let a bare ValueError escape as something that looks like
+    # an unvalidated NIK slipped through.
+    try:
+        birth_date = datetime.date(year, month, day)
+    except ValueError as exc:
+        raise ValueError(f"Invalid NIK '{nik}': not a real calendar date ({exc})") from exc
 
     return NikInfo(
         province_code=province_code,

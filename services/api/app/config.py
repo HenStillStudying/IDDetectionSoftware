@@ -16,6 +16,7 @@ class Settings:
     api_key: str | None = os.getenv("KTP_API_KEY")  # None disables auth (dev only)
     detection_weights_path: str | None = os.getenv("KTP_DETECTION_WEIGHTS")
     ocr_service_url: str | None = os.getenv("KTP_OCR_SERVICE_URL")
+    ocr_internal_key: str | None = os.getenv("KTP_OCR_INTERNAL_KEY")  # None disables (dev only)
     redis_url: str = os.getenv("KTP_REDIS_URL", "redis://localhost:6379")
 
 

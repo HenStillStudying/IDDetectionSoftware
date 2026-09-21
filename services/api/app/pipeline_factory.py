@@ -47,7 +47,7 @@ def build_ocr_service() -> OcrService:
     """
     if settings.ocr_service_url:
         logger.info("Using remote OCR service at %s", settings.ocr_service_url)
-        return RemoteOcrService(settings.ocr_service_url)
+        return RemoteOcrService(settings.ocr_service_url, internal_key=settings.ocr_internal_key)
 
     logger.warning("KTP_OCR_SERVICE_URL not set — using stub OCR service")
     return StubOcrService()

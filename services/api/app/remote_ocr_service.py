@@ -23,8 +23,14 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 class RemoteOcrService(OcrService):
-    def __init__(self, base_url: str, timeout: float = DEFAULT_TIMEOUT_SECONDS):
-        self._client = httpx.Client(base_url=base_url, timeout=timeout)
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        internal_key: str | None = None,
+    ):
+        headers = {"X-Internal-Key": internal_key} if internal_key else None
+        self._client = httpx.Client(base_url=base_url, timeout=timeout, headers=headers)
 
     def extract_fields(self, rectified_card: PILImage) -> KtpFields:
         buffer = io.BytesIO()
