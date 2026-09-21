@@ -20,6 +20,8 @@ from ktp_schema import (
 from ktp_schema.result import NikValidation
 from ktp_interfaces import DetectionService, OcrService
 
+from . import forensics
+
 LOW_CONFIDENCE_THRESHOLD = 0.6
 
 # A real phone photo runs several times larger than the 960x720 synthetic
@@ -64,11 +66,19 @@ class KtpExtractionPipeline:
                 processing_time_ms=_elapsed_ms(started),
             )
 
+        # Tier-1 tamper-detection heuristics (EXIF inspection only for now —
+        # see forensics.py) — run on the original bytes, since our own
+        # resize/re-encoding could strip the EXIF this checks. Runs
+        # regardless of whether a card is even found below: it's a property
+        # of the uploaded photo, not of a successful extraction.
+        forensics_result = forensics.analyze(image_bytes)
+
         detection = self._detection_service.detect_and_rectify(image)
         if detection is None:
             return KtpExtractionResult(
                 status=ExtractionStatus.NO_CARD_DETECTED,
-                warnings=["No KTP card was detected in the image."],
+                forensics=forensics_result,
+                warnings=["No KTP card was detected in the image."] + forensics_result.warnings,
                 processing_time_ms=_elapsed_ms(started),
             )
 
@@ -78,7 +88,7 @@ class KtpExtractionPipeline:
         nik_validation = self._validate_nik_field(fields.nik.value)
         overall_confidence = self._overall_confidence(bbox, fields)
 
-        warnings: list[str] = []
+        warnings: list[str] = list(forensics_result.warnings)
         if nik_validation is not None and not nik_validation.is_valid:
             warnings.extend(f"NIK: {err}" for err in nik_validation.errors)
 
@@ -93,6 +103,7 @@ class KtpExtractionPipeline:
             bounding_box=bbox,
             fields=fields,
             nik_validation=nik_validation,
+            forensics=forensics_result,
             overall_confidence=overall_confidence,
             warnings=warnings,
             processing_time_ms=_elapsed_ms(started),

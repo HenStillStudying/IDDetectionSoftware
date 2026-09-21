@@ -32,11 +32,30 @@ class NikValidation(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class ForensicsResult(BaseModel):
+    """Tier-1 tamper-detection signals on the uploaded photo — classical
+    image-forensics heuristics, not a verdict. A clean result here is not
+    proof of authenticity; `suspicious=True` is not proof of forgery — it's
+    a signal meant to route a case for closer review, the same way a low
+    OCR confidence flags a read without asserting it's wrong.
+
+    Only EXIF inspection is active today — an Error Level Analysis check
+    was tried and shelved after it false-positived on a real, unedited KTP
+    photo; see services/api/app/forensics.py for why.
+    """
+
+    exif_present: bool
+    editor_software_detected: str | None = None
+    suspicious: bool
+    warnings: list[str] = Field(default_factory=list)
+
+
 class KtpExtractionResult(BaseModel):
     status: ExtractionStatus
     bounding_box: BoundingBox | None = None
     fields: KtpFields | None = None
     nik_validation: NikValidation | None = None
+    forensics: ForensicsResult | None = None
     overall_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     warnings: list[str] = Field(default_factory=list)
     processing_time_ms: float | None = None

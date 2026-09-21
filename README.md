@@ -1144,3 +1144,72 @@ than redesigning the generator off a single sample.
   the other two fixes: a regression test spies on the actual
   `enqueue_job(...)` call and asserts `_expires` is set, confirmed it fails
   without the fix, restored. 77 tests passing (1 new).
+- **Tier-1 tamper-detection heuristics added (`services/api/app/forensics.py`)
+  — classical image forensics, not ML, and explicitly scoped down from the
+  original plan.** Four techniques were discussed (Error Level Analysis,
+  JPEG block-grid misalignment, EXIF inspection, per-field font
+  consistency); only ELA and EXIF are actually implemented here. The other
+  two were deliberately deferred — both need real design work to implement
+  reliably (naive block-grid forensics especially can produce
+  confident-looking nonsense), and shipping an unvalidated version of
+  either would be worse than not having it. This is a warnings/scoring
+  layer, not a hard reject: a `ForensicsResult` (`exif_present`,
+  `editor_software_detected`, `error_level_anomaly_score`, `suspicious`,
+  `warnings`) rides alongside the existing extraction result, the same
+  "confidence plus warnings, not a verdict" shape OCR confidence already
+  uses.
+  Runs on the *original* uploaded bytes, never on anything the pipeline
+  has already resized or perspective-warped — both resample pixels and
+  destroy the compression-history artifacts ELA depends on, so it has to
+  run before `_downscale_if_needed`/`detect_and_rectify` would touch the
+  image, not after.
+  ELA here specifically looks for a *regional* anomaly (the error map is
+  split into a grid and each cell's mean is z-scored against the rest),
+  not a single whole-image average — a small localized edit can be
+  invisible in an image-wide number while still standing out clearly
+  against its immediate surroundings, which is the entire point of this
+  check existing.
+  **Measured, not estimated, per this project's own rule**: earlier
+  latency planning estimated 50-150ms for all four originally-scoped
+  techniques; the two actually built here measured at **~12ms average**
+  on a 640×404 test image (10-run average, `services/api/app/forensics.py`
+  timed directly) — negligible next to the ~2s ONNX or ~5.6s native OCR
+  cost either way.
+  **An honest, not-yet-resolved caveat surfaced by that same measurement**:
+  running this against `training/sample_ktp.png` (the synthetic,
+  template-rendered test card used for quick smoke tests) returned
+  `suspicious=True` — almost certainly a false positive, since that image
+  is vector-rendered graphics with none of a real photo's natural sensor
+  noise, not evidence the check is broken. This project's own hard-learned
+  lesson (the detector-retraining regression that only the real KTP photo
+  caught, see below) applies just as much here: `ELA_ANOMALY_Z_THRESHOLD`
+  (currently `3.0`, a first-guess placeholder) has not been calibrated
+  against any real photo's false-positive rate yet, and shouldn't be
+  trusted for that until it is — exactly the kind of validation gap this
+  project's eval-harness discipline exists to catch before something like
+  this ships as a real signal rather than a demo.
+- **That caveat played out immediately: tested against the real KTP photo,
+  ELA false-positived, and was shelved.** The genuine, unedited real card
+  scored 4.6 std-devs — above the 3.0 threshold, flagged `suspicious=True`
+  on a photo with nothing wrong with it. Root cause, not just a bad
+  threshold: a real photo's card body, text edges, photo backdrop, and
+  background surface naturally carry very different amounts of
+  high-frequency detail, which produces the same regional
+  compression-response variance this check was looking for from tampering
+  — the smooth-gradient synthetic test images used during development
+  never exercised that at all. The file was also a WhatsApp download,
+  whose own recompression pass is a well-documented real-world source of
+  ELA false positives independent of any editing. Same lesson this project
+  has already learned once with the detector (a synthetic-only test set
+  hid a real-photo-only failure) — this time on the very first real-photo
+  test.
+  **Decision: shelved ELA, kept EXIF inspection only.** `ForensicsResult`
+  no longer carries `error_level_anomaly_score`; `suspicious` is now driven
+  solely by detected editor-software EXIF tags. Re-verified against the
+  same real photo afterward: `suspicious: False`, just the (expected,
+  non-suspicious) "no EXIF" note — WhatsApp strips it, unrelated to
+  tampering. ELA isn't abandoned for good — revisiting it would mean
+  isolating the analysis to just the card region (excluding the
+  background) and validating against more than one real photo, not just
+  tuning the threshold on this same single case. 89 tests passing (2 ELA
+  tests removed with the code they tested).
