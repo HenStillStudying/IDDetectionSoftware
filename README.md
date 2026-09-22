@@ -1213,3 +1213,18 @@ than redesigning the generator off a single sample.
   background) and validating against more than one real photo, not just
   tuning the threshold on this same single case. 89 tests passing (2 ELA
   tests removed with the code they tested).
+- **Fixed the last documented gap: `redis_pool.py`'s lazy-singleton race.**
+  `if _pool is None: _pool = await create_pool(...)` had an unsynchronized
+  check-and-create — two requests arriving before the pool existed could
+  both pass the `None` check, both call `create_pool()`, and whichever
+  finished last would silently overwrite the other's pool, leaking the
+  loser's connections. Fixed with an `asyncio.Lock` and a re-check inside
+  it (the standard double-checked-locking shape): the first waiter creates
+  the pool, every other waiter then sees it's no longer `None` and skips
+  creating another. Verified, not just applied: a test forces 10 concurrent
+  callers through the race window (by making a mocked `create_pool` slow
+  enough that every caller observes `_pool` as `None` before any of them
+  finishes), asserts `create_pool` was only actually called once and every
+  caller got the same pool instance — reverting the fix makes the same 10
+  concurrent callers create 10 separate pools, confirming the test actually
+  catches the bug it's named for. 90 tests passing (1 new).
