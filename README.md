@@ -127,14 +127,37 @@ docker compose up --build
   `redis` (6379) are unreachable from the host; from inside the network,
   `ocr` returns 401 without `X-Internal-Key` and Redis returns `NOAUTH`
   without the password.
-- Images: `ktp-api:local` 2.49 GB, `ktp-ocr:local` 1.99 GB. The api image
+- Images: `ktp-api:local` ~2.8 GB, `ktp-ocr:local` ~2.4 GB. The api image
   installs torch/torchvision from PyTorch's CPU-only index (pinned to the
   same versions used locally) — the default PyPI build would bundle
   several GB of CUDA libraries this CPU container never uses.
-- Latency: ~5.9s warm per sync request (first request ~8.4s cold), since
-  compose defaults to the native PaddlePaddle engine — the ONNX engine
-  (~2s locally) is opt-in in `docker-compose.yml`, commented out, because
-  it needs the one-time model conversion first.
+- **The ocr image runs the ONNX Runtime engine by default, with the
+  models converted inside its own build** — no manual conversion step,
+  no volume mount. A multi-stage Dockerfile downloads the native
+  `PP-OCRv6_small` models and converts them with `paddle2onnx==2.0.2rc3`
+  in a throwaway builder stage; only the two `.onnx` files are copied
+  into the final image (confirmed: neither paddle2onnx nor the native
+  model files ship in it). This also finally sidesteps the conversion's
+  Windows-only DLL failure documented under Status: the container is
+  Linux regardless of the host. Set `KTP_OCR_ENGINE: paddle` in
+  `docker-compose.yml` to fall back to the native engine.
+- **Latency: ~1.2-1.6s per sync request**, down from ~5.9s warm on the
+  native engine in the same containers (~4x). No model download at
+  container startup anymore either — the native engine fetches its
+  models on first start, the baked-in ONNX models need nothing.
+- **Output verified against the local ONNX path, not assumed**: the
+  in-container conversion produced a recognition model 40 bytes different
+  in size from the one converted earlier outside Docker (the detection
+  model is byte-for-byte the same size), so rather than assume
+  equivalence, the same sample card was run through both via the real API
+  path. All 17 field values match exactly; 4 of 17 confidences differ by
+  at most 1.2e-7 (floating-point noise, far below anything that could
+  change a field or status); three container runs are identical to each
+  other. (The comparison has to go through the API, not an in-process
+  pipeline call: the API re-encodes the rectified card as JPEG before
+  sending it to the OCR service, which alone shifts the overall
+  confidence from 0.9243 to 0.9270 on this card — comparing an HTTP run
+  against an in-process one would have been apples to oranges.)
 
 **What the first real build caught** (none of it visible from
 `docker compose config` alone — all four would have shipped broken):
@@ -153,6 +176,11 @@ docker compose up --build
   `KTP_API_KEY` blank (as `.env.example` ships it) *enabled* auth with an
   empty secret and 401'd every request. Fixed at the config boundary in
   both services (empty now means unset), with a regression test.
+- `.dockerignore` patterns like `__pycache__/` only match at the repo root
+  without a `**/` prefix — so a local test run's `__pycache__` inside
+  `services/ocr/ktp_ocr/` got copied into the build, invalidated that
+  `COPY` layer's cache (forcing every later pip layer to re-download), and
+  would have shipped stray `.pyc` files. All patterns now use `**/`.
 
 ## Train the detection model
 

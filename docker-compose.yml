@@ -34,15 +34,10 @@ services:
       dockerfile: services/ocr/Dockerfile
     environment:
       KTP_OCR_INTERNAL_KEY: ${KTP_OCR_INTERNAL_KEY:-}
-      # Uncomment to use the faster ONNX Runtime engine instead of native
-      # PaddlePaddle — needs the onnx_models volume mount below too, and
-      # the one-time conversion step in the README's "Run (four processes)"
-      # section to produce ./services/ocr/onnx_models in the first place:
-      # KTP_OCR_ENGINE: onnxruntime
-      # KTP_OCR_ONNX_DET_DIR: /app/onnx_models/PP-OCRv6_small_det
-      # KTP_OCR_ONNX_REC_DIR: /app/onnx_models/PP-OCRv6_small_rec
-    # volumes:
-    #   - ./services/ocr/onnx_models:/app/onnx_models:ro
+      # The image runs the ONNX Runtime engine by default, with the ONNX
+      # models converted at build time (see services/ocr/Dockerfile). To
+      # fall back to native PaddlePaddle instead:
+      # KTP_OCR_ENGINE: paddle
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 10s

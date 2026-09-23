@@ -1,20 +1,26 @@
+# `**/` prefixes matter: .dockerignore patterns without them match only at
+# the repo root, so a local test run's __pycache__ inside
+# services/ocr/ktp_ocr/ got copied in, invalidated the COPY layer's cache
+# (forcing every later pip layer to re-download), and would have shipped
+# stray .pyc files in the image.
 .git/
 .claude/
-__pycache__/
-*.pyc
-*.egg-info/
-.venv/
-venv/
-.pytest_cache/
-dataset/
-eval_set/
-eval_report*.json
-*.log
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/dataset/
+**/eval_set/
+**/eval_report*.json
+**/*.log
 .env
 
 # trained model weights + run artifacts — mounted in as volumes at
-# runtime (see docker-compose.yml), not baked into any image
-runs/
-*.pt
-*.onnx
-onnx_models/
+# runtime (see docker-compose.yml), not baked into any image. The ONNX
+# models the ocr image uses are converted inside its own build instead.
+**/runs/
+**/*.pt
+**/*.onnx
+**/onnx_models/
