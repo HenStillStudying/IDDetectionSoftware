@@ -205,6 +205,17 @@ python -m pytest libs/tests services/api/tests services/ocr/tests
 All three suites run against stubs/fakes — none load a real model, so the
 full suite runs in under a second.
 
+**CI** (`.github/workflows/ci.yml`) runs this same suite on every push to
+`main` and every pull request, plus `docker compose config` to catch a
+broken compose file. It deliberately installs only `libs` and the two
+`requirements-dev.txt` files, not `services/ocr` or `services/detection`
+as packages — those pull in PaddlePaddle and PyTorch (several GB), which
+the tests never import. Verified before relying on it: the full suite
+passes in a clean virtualenv with none of those libraries present. That
+check also caught a real gap — `ktp_ocr/text_lines.py` imports numpy, which
+had only ever arrived via the heavy `pip install -e services/ocr`, so
+`services/ocr/requirements-dev.txt` now lists it explicitly.
+
 ## Evaluate real pipeline accuracy (not eyeballed)
 
 Unit tests check logic; this measures the actual detector+OCR pipeline

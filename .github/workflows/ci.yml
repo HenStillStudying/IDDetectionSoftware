@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the python:3.12-slim base both Docker images use.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            libs/pyproject.toml
+            services/api/requirements*.txt
+            services/ocr/requirements*.txt
+
+      # Deliberately *not* installing services/ocr or services/detection as
+      # packages: those pull in PaddlePaddle/PaddleOCR and PyTorch/ultralytics
+      # (several GB). The test suite runs entirely against stubs and fakes and
+      # imports none of them at module level, so the dev requirements are
+      # enough — verified in a clean venv with none of those libs present.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./libs \
+            -r services/api/requirements-dev.txt \
+            -r services/ocr/requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest libs/tests services/api/tests services/ocr/tests
+
+      # Validates docker-compose.yml's syntax and variable interpolation
+      # without building the (heavy) images. REDIS_PASSWORD is required by
+      # the compose file; a dummy value is fine since nothing starts.
+      - name: Validate docker-compose.yml
+        env:
+          REDIS_PASSWORD: ci-validation-only
+        run: docker compose config --quiet
