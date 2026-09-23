@@ -12,8 +12,22 @@
 # "Data handling & compliance" section for why that's deliberate, not an
 # oversight.
 
+# Shared by every service below (merged in with `<<: *service-defaults`).
+x-service-defaults: &service-defaults
+  # Come back after a crash or a host reboot — only an explicit
+  # `docker compose stop`/`down` keeps a service down.
+  restart: unless-stopped
+  # Docker's default json-file logging never rotates, so on a long-running
+  # host it grows until the disk fills. Cap it at 3 x 10 MB per container.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   redis:
+    <<: *service-defaults
     image: redis:7-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
@@ -28,6 +42,7 @@ services:
     # lifetime"), so there's nothing worth persisting across a restart.
 
   ocr:
+    <<: *service-defaults
     image: ktp-ocr:local
     build:
       context: .
@@ -46,6 +61,7 @@ services:
       start_period: 60s  # PaddleOCR's model warm-up at startup takes ~15-20s
 
   api:
+    <<: *service-defaults
     image: ktp-api:local
     build:
       context: .
@@ -72,6 +88,7 @@ services:
       retries: 10
 
   worker:
+    <<: *service-defaults
     image: ktp-api:local
     build:
       context: .

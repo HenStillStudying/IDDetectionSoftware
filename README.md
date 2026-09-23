@@ -159,6 +159,14 @@ docker compose up --build
   confidence from 0.9243 to 0.9270 on this card — comparing an HTTP run
   against an in-process one would have been apples to oranges.)
 
+- **Survives crashes and reboots**: every service has
+  `restart: unless-stopped` (only an explicit `docker compose stop`/`down`
+  keeps it down). Tested, not assumed: killing the api container's main
+  process got it restarted by Docker with `/health` answering again within
+  ~4s. Logs rotate at 3 × 10 MB per container — Docker's default
+  `json-file` logging never rotates and would eventually fill a
+  long-running host's disk.
+
 **What the first real build caught** (none of it visible from
 `docker compose config` alone — all four would have shipped broken):
 - `services/api/Dockerfile` never installed `services/detection`, so the
@@ -215,6 +223,20 @@ passes in a clean virtualenv with none of those libraries present. That
 check also caught a real gap — `ktp_ocr/text_lines.py` imports numpy, which
 had only ever arrived via the heavy `pip install -e services/ocr`, so
 `services/ocr/requirements-dev.txt` now lists it explicitly.
+
+**Dependabot** (`.github/dependabot.yml`) opens a weekly pull request for
+new versions of the pinned Python dependencies, the Docker base images,
+and the GitHub Actions used by CI — exact pins mean nothing updates on its
+own otherwise, security fixes included. All Python updates land in one
+grouped PR across every directory, since `pillow`, `numpy`, `fastapi` and
+others are pinned in several files and must stay on the same version
+everywhere. Two blind spots to know about:
+- `torch`/`torchvision` (api Dockerfile) and `paddle2onnx` (ocr
+  Dockerfile) are pinned inside `RUN pip install` lines, which Dependabot
+  doesn't read — they have to be bumped by hand.
+- CI never installs PaddlePaddle, PaddleOCR, PyTorch or ultralytics, so a
+  green CI run on a PR that bumps one of them says nothing about it.
+  Rebuild the images and rerun the docker smoke test before merging those.
 
 ## Evaluate real pipeline accuracy (not eyeballed)
 
