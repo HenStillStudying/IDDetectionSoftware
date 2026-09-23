@@ -100,6 +100,60 @@ KTP_OCR_ONNX_REC_DIR=./onnx_models/PP-OCRv6_small_rec \
 uvicorn ocr_app.main:app --port 8001
 ```
 
+### Or: docker-compose (built and verified end to end)
+
+`docker-compose.yml` at the repo root runs all four processes as
+containers — `redis`, `ocr`, `api`, and `worker` (the last two share one
+image/Dockerfile, just a different command). Only `api` publishes a port
+to the host; `redis` and `ocr` are reachable only from other containers on
+the compose network, matching the audit's recommendation to not rely on
+"nothing exposes this port" as the only control once a real network
+topology exists.
+
+```bash
+cp .env.example .env   # fill in a real REDIS_PASSWORD at minimum
+docker compose up --build
+```
+
+**Verified by actually running it, not just `docker compose config`:**
+- Real sync extraction through the containerized API against
+  `training/sample_ktp.png`: identical result to the non-Docker path
+  (detection 0.962, 16/17 fields, NIK valid) — real detection + OCR, not
+  stubs.
+- The async path end to end (`POST /v1/ktp/jobs` → worker → result),
+  which crosses every container boundary at once: Redis password auth,
+  the worker, and the OCR internal key.
+- Isolation checked directly rather than assumed: `ocr` (8001) and
+  `redis` (6379) are unreachable from the host; from inside the network,
+  `ocr` returns 401 without `X-Internal-Key` and Redis returns `NOAUTH`
+  without the password.
+- Images: `ktp-api:local` 2.49 GB, `ktp-ocr:local` 1.99 GB. The api image
+  installs torch/torchvision from PyTorch's CPU-only index (pinned to the
+  same versions used locally) — the default PyPI build would bundle
+  several GB of CUDA libraries this CPU container never uses.
+- Latency: ~5.9s warm per sync request (first request ~8.4s cold), since
+  compose defaults to the native PaddlePaddle engine — the ONNX engine
+  (~2s locally) is opt-in in `docker-compose.yml`, commented out, because
+  it needs the one-time model conversion first.
+
+**What the first real build caught** (none of it visible from
+`docker compose config` alone — all four would have shipped broken):
+- `services/api/Dockerfile` never installed `services/detection`, so the
+  container could only ever run stub detection.
+- Both images crashed on startup with missing system libraries that
+  `python:3.12-slim` doesn't ship: the full (GUI) OpenCV builds pulled in
+  transitively by `paddlex` and `ultralytics` need `libgl1`/
+  `libglib2.0-0`, and `paddlepaddle` needs `libgomp1` (the same error
+  this project hit once before in the WSL2/GPU container test). The
+  `libgomp1` miss surfaced only after a first round of fixes, because
+  `paddleocr` imports `paddle` lazily — a plain import check passed; only
+  constructing the real engine exposed it.
+- A blank `.env` entry is passed into the container as an empty string,
+  and `config.py` read it with `os.getenv()` as-is — so leaving
+  `KTP_API_KEY` blank (as `.env.example` ships it) *enabled* auth with an
+  empty secret and 401'd every request. Fixed at the config boundary in
+  both services (empty now means unset), with a regression test.
+
 ## Train the detection model
 
 ```bash

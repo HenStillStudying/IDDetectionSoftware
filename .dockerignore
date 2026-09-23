@@ -1,0 +1,20 @@
+.git/
+.claude/
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+dataset/
+eval_set/
+eval_report*.json
+*.log
+.env
+
+# trained model weights + run artifacts — mounted in as volumes at
+# runtime (see docker-compose.yml), not baked into any image
+runs/
+*.pt
+*.onnx
+onnx_models/

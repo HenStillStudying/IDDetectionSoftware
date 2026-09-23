@@ -1,0 +1,97 @@
+# Built and verified end to end — see the README's docker-compose section
+# for what was checked. Both images pull in heavy dependencies (PyTorch for
+# api, PaddlePaddle for ocr), so expect the first build to take a while.
+#
+# Usage:
+#   cp .env.example .env   # fill in real values — never commit .env
+#   docker compose up --build
+#
+# Only `api` publishes a port to the host (8000). redis and ocr are
+# reachable only from other services on this compose network — see
+# services/ocr/ocr_app/main.py's KTP_OCR_INTERNAL_KEY and the README's
+# "Data handling & compliance" section for why that's deliberate, not an
+# oversight.
+
+services:
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    # Deliberately no volume: job data already carries a 10-minute TTL
+    # (see README, "Redis job args no longer default to a 24-hour
+    # lifetime"), so there's nothing worth persisting across a restart.
+
+  ocr:
+    image: ktp-ocr:local
+    build:
+      context: .
+      dockerfile: services/ocr/Dockerfile
+    environment:
+      KTP_OCR_INTERNAL_KEY: ${KTP_OCR_INTERNAL_KEY:-}
+      # Uncomment to use the faster ONNX Runtime engine instead of native
+      # PaddlePaddle — needs the onnx_models volume mount below too, and
+      # the one-time conversion step in the README's "Run (four processes)"
+      # section to produce ./services/ocr/onnx_models in the first place:
+      # KTP_OCR_ENGINE: onnxruntime
+      # KTP_OCR_ONNX_DET_DIR: /app/onnx_models/PP-OCRv6_small_det
+      # KTP_OCR_ONNX_REC_DIR: /app/onnx_models/PP-OCRv6_small_rec
+    # volumes:
+    #   - ./services/ocr/onnx_models:/app/onnx_models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s  # PaddleOCR's model warm-up at startup takes ~15-20s
+
+  api:
+    image: ktp-api:local
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      KTP_DETECTION_WEIGHTS: /app/weights/best.pt
+      KTP_OCR_SERVICE_URL: http://ocr:8001
+      KTP_OCR_INTERNAL_KEY: ${KTP_OCR_INTERNAL_KEY:-}
+      KTP_REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379
+      KTP_API_KEY: ${KTP_API_KEY:-}
+    volumes:
+      - ./training/runs/ktp_detector/weights:/app/weights:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      ocr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    image: ktp-api:local
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    command: ["arq", "app.worker.WorkerSettings"]
+    environment:
+      KTP_DETECTION_WEIGHTS: /app/weights/best.pt
+      KTP_OCR_SERVICE_URL: http://ocr:8001
+      KTP_OCR_INTERNAL_KEY: ${KTP_OCR_INTERNAL_KEY:-}
+      KTP_REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}@redis:6379
+    volumes:
+      - ./training/runs/ktp_detector/weights:/app/weights:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      ocr:
+        condition: service_healthy
+    # No healthcheck — arq doesn't expose an HTTP endpoint to probe.

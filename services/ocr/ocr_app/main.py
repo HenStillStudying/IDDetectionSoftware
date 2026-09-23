@@ -34,7 +34,9 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 # this service's port beyond localhost today — but this service otherwise
 # has no auth of its own at all, so this is a free defense-in-depth layer
 # for whenever that changes (e.g. a shared docker-compose network).
-_INTERNAL_KEY = os.getenv("KTP_OCR_INTERNAL_KEY")
+# `or None`: an empty value (e.g. a blank .env entry, which docker-compose
+# passes through as "") means "not set", not "require an empty key".
+_INTERNAL_KEY = os.getenv("KTP_OCR_INTERNAL_KEY") or None
 
 
 async def require_internal_key(x_internal_key: str | None = Header(default=None)) -> None:
