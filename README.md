@@ -238,6 +238,19 @@ everywhere. Two blind spots to know about:
   green CI run on a PR that bumps one of them says nothing about it.
   Rebuild the images and rerun the docker smoke test before merging those.
 
+Two updates are deliberately excluded, both found on Dependabot's very
+first run:
+- `redis` 6+: its first grouped PR bumped `redis` to 8.1.0 and failed CI's
+  install step — `arq`, even at its latest release (0.28.0), requires
+  `redis<6`. With grouping, that one impossible bump blocked the other
+  five updates in the same PR too.
+- Python base-image upgrades (it proposed `python:3.12-slim` →
+  `3.14-slim`): CI passed on that PR, but only because CI runs its own
+  Python 3.12 and never builds these images — PaddlePaddle and PyTorch may
+  not ship wheels for 3.14 at the pinned versions. Moving Python versions
+  is done by hand, together with CI's `python-version`, after a rebuild and
+  smoke test.
+
 ## Evaluate real pipeline accuracy (not eyeballed)
 
 Unit tests check logic; this measures the actual detector+OCR pipeline

@@ -25,6 +25,12 @@ updates:
       # the same version everywhere, or pip hits resolver conflicts.
       python-dependencies:
         patterns: ["*"]
+    ignore:
+      # arq (even its latest release, 0.28.0) requires redis<6, so a redis
+      # 6+ bump can never install — and since updates are grouped, one
+      # impossible bump fails the whole PR. Lift this once arq supports it.
+      - dependency-name: "redis"
+        versions: [">=6"]
 
   - package-ecosystem: docker
     directories:
@@ -35,6 +41,14 @@ updates:
     groups:
       base-images:
         patterns: ["*"]
+    ignore:
+      # Moving to a new Python version (e.g. 3.12 -> 3.14) is a deliberate
+      # upgrade, not a routine bump: PaddlePaddle and PyTorch wheels at the
+      # pinned versions may not exist for it, and CI (which runs its own
+      # Python 3.12, not these images) can't catch that. Upgrade by hand,
+      # together with CI's python-version, after rebuilding and smoke-testing.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: "/"
