@@ -238,8 +238,13 @@ everywhere. Two blind spots to know about:
   green CI run on a PR that bumps one of them says nothing about it.
   Rebuild the images and rerun the docker smoke test before merging those.
 
-Two updates are deliberately excluded, both found on Dependabot's very
+Three updates are deliberately excluded, all found on Dependabot's very
 first run:
+- `numpy` 2.4+: `paddlex` (what `paddleocr` is built on), even at its
+  latest 3.7.x, requires `numpy<2.4` — the grouped PR's `numpy` 2.4.6 bump
+  made the ocr image uninstallable. CI passed on that PR anyway, since it
+  never installs `paddlex`; only a real `docker build` caught it — exactly
+  the blind spot described above.
 - `redis` 6+: its first grouped PR bumped `redis` to 8.1.0 and failed CI's
   install step — `arq`, even at its latest release (0.28.0), requires
   `redis<6`. With grouping, that one impossible bump blocked the other

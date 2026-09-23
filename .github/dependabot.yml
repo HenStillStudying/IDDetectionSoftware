@@ -31,6 +31,12 @@ updates:
       # impossible bump fails the whole PR. Lift this once arq supports it.
       - dependency-name: "redis"
         versions: [">=6"]
+      # paddlex (what paddleocr is built on; even its latest 3.7.x) requires
+      # numpy<2.4, so a numpy 2.4+ bump makes the ocr image uninstallable.
+      # CI can't catch this — it never installs paddlex — only a docker
+      # build does. Lift this once paddlex allows it.
+      - dependency-name: "numpy"
+        versions: [">=2.4"]
 
   - package-ecosystem: docker
     directories:
