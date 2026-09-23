@@ -9,7 +9,7 @@ description = "Shared data contracts and service interfaces for the KTP identifi
 requires-python = ">=3.11"
 dependencies = [
     "pydantic==2.13.5",
-    "pillow==11.3.0",
+    "pillow==12.3.0",
 ]
 
 [tool.setuptools]
