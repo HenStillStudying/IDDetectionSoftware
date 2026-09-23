@@ -14,8 +14,8 @@ dependencies = [
     # paddlepaddle-gpu matching your CUDA version from PaddlePaddle's own
     # index (plain PyPI only carries an old 2.6.2 GPU build) — see README.
     "paddlepaddle==3.3.1",
-    "pillow==11.3.0",
-    "numpy==2.2.6",
+    "pillow==12.3.0",
+    "numpy==2.4.6",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +23,7 @@ dependencies = [
 # engine doesn't use it. paddle2onnx (the conversion tool that produces
 # the .onnx model files this loads) isn't listed here since it's a
 # one-time tooling step, not something the running service imports.
-onnx = ["onnxruntime==1.29.0"]
+onnx = ["onnxruntime==1.30.0"]
 
 [tool.setuptools]
 packages = ["ktp_ocr"]
