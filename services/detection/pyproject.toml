@@ -9,10 +9,10 @@ description = "YOLO-based KTP card detection, implementing the shared DetectionS
 requires-python = ">=3.11"
 dependencies = [
     "ktp-shared",
-    "ultralytics==8.3.205",
-    "pillow==11.3.0",
+    "ultralytics==8.4.156",
+    "pillow==12.3.0",
     "opencv-python-headless==5.0.0.93",
-    "numpy==2.2.6",
+    "numpy==2.3.5",
 ]
 
 [tool.setuptools]
