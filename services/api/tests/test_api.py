@@ -321,3 +321,72 @@ def test_extract_rejects_oversized_upload_before_reading_it(client):
     # this, not just that a 413 came back from somewhere.
     assert "Request body exceeds the maximum allowed size" in resp.json()["detail"]
     mock_run.assert_not_called()
+
+
+# --- OCR service failures must become clean 503/504s, not unhandled 500s ---
+# Drives the real /v1/ktp/extract endpoint with a real RemoteOcrService whose
+# HTTP layer is swapped for httpx.MockTransport, so every failure mode below
+# is exactly what the API would see from a slow, down, or broken OCR service.
+
+
+def _pipeline_with_ocr_transport(handler):
+    import httpx
+
+    from app.remote_ocr_service import RemoteOcrService
+    from app.stub_models import StubDetectionService
+
+    ocr = RemoteOcrService("http://ocr:8001")
+    ocr._client = httpx.Client(base_url="http://ocr:8001", transport=httpx.MockTransport(handler))
+    return KtpExtractionPipeline(StubDetectionService(), ocr)
+
+
+def _extract_with_ocr(client, handler):
+    with patch("app.main.pipeline", _pipeline_with_ocr_transport(handler)):
+        return client.post(
+            "/v1/ktp/extract",
+            files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+        )
+
+
+def _raise(exc_type):
+    def handler(request):
+        raise exc_type("simulated failure talking to http://ocr:8001/secret-internal-path", request=request)
+
+    return handler
+
+
+def test_ocr_timeout_returns_504(client):
+    # Regression test for a real bug: a single OCR request slower than
+    # RemoteOcrService's 30s timeout (seen once while validating a
+    # dependency upgrade) surfaced as an unhandled 500.
+    import httpx
+
+    resp = _extract_with_ocr(client, _raise(httpx.ReadTimeout))
+    assert resp.status_code == 504
+    assert "secret-internal-path" not in resp.text
+
+
+def test_ocr_unreachable_returns_503(client):
+    import httpx
+
+    resp = _extract_with_ocr(client, _raise(httpx.ConnectError))
+    assert resp.status_code == 503
+    assert "secret-internal-path" not in resp.text
+
+
+def test_ocr_error_responses_return_503(client):
+    # 500 = OCR itself failed; 401 = KTP_OCR_INTERNAL_KEY mismatch between
+    # the services (a misconfiguration, logged server-side for the operator).
+    import httpx
+
+    for status in (500, 401):
+        resp = _extract_with_ocr(client, lambda request, s=status: httpx.Response(s, text="internal details"))
+        assert resp.status_code == 503, status
+        assert "internal details" not in resp.text
+
+
+def test_ocr_malformed_response_returns_503(client):
+    import httpx
+
+    resp = _extract_with_ocr(client, lambda request: httpx.Response(200, json={"not": "ktp fields"}))
+    assert resp.status_code == 503

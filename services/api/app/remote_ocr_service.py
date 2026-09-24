@@ -15,8 +15,9 @@ import io
 
 import httpx
 from PIL.Image import Image as PILImage
+from pydantic import ValidationError
 
-from ktp_interfaces import OcrService
+from ktp_interfaces import OcrService, OcrTimeoutError, OcrUnavailableError
 from ktp_schema import KtpFields
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -37,9 +38,23 @@ class RemoteOcrService(OcrService):
         rectified_card.save(buffer, format="JPEG")
         buffer.seek(0)
 
-        response = self._client.post(
-            "/v1/ocr/extract",
-            files={"file": ("card.jpg", buffer, "image/jpeg")},
-        )
-        response.raise_for_status()
-        return KtpFields.model_validate(response.json())
+        # Translate httpx/pydantic failures into the OcrService contract's own
+        # exceptions, so callers can report "OCR unavailable" cleanly instead
+        # of an unhandled 500. The original exception is chained (`from`) for
+        # server-side logs; it is never meant to reach an API client.
+        try:
+            response = self._client.post(
+                "/v1/ocr/extract",
+                files={"file": ("card.jpg", buffer, "image/jpeg")},
+            )
+            response.raise_for_status()
+            return KtpFields.model_validate(response.json())
+        except httpx.TimeoutException as exc:
+            raise OcrTimeoutError("OCR service did not respond in time") from exc
+        except httpx.HTTPStatusError as exc:
+            # e.g. 401 = KTP_OCR_INTERNAL_KEY mismatch between the services.
+            raise OcrUnavailableError(f"OCR service returned HTTP {exc.response.status_code}") from exc
+        except httpx.HTTPError as exc:
+            raise OcrUnavailableError("OCR service unreachable") from exc
+        except (ValueError, ValidationError) as exc:  # non-JSON body, or not KtpFields
+            raise OcrUnavailableError("OCR service returned an invalid response") from exc

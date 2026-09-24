@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 
+from ktp_interfaces import OcrTimeoutError, OcrUnavailableError
 from ktp_schema import ExtractionStatus
 
 from .config import settings
@@ -120,7 +121,16 @@ async def extract(file: UploadFile):
     # inference, an HTTP call to the OCR service) — run it off the event
     # loop so one request's multi-second processing doesn't block every
     # other request this process is serving, including health checks.
-    result = await asyncio.to_thread(pipeline.run, contents)
+    try:
+        result = await asyncio.to_thread(pipeline.run, contents)
+    except OcrTimeoutError:
+        # The real cause goes to the server log only — like the job-failure
+        # endpoint, never echo internal details (URLs, upstream bodies) back.
+        logger.warning("OCR service timed out", exc_info=True)
+        raise HTTPException(status_code=504, detail="OCR service timed out. Try again later.")
+    except OcrUnavailableError:
+        logger.warning("OCR service unavailable", exc_info=True)
+        raise HTTPException(status_code=503, detail="OCR service unavailable. Try again later.")
 
     status_code = 200
     if result.status == ExtractionStatus.INVALID_IMAGE:

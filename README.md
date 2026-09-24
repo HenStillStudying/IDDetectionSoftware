@@ -290,7 +290,9 @@ change to detection or OCR, not just once.
 ## API
 
 **Main API** (`services/api`):
-- `POST /v1/ktp/extract` — multipart image upload, returns extraction result synchronously
+- `POST /v1/ktp/extract` — multipart image upload, returns extraction result synchronously.
+  `504` if the OCR service times out (30s), `503` if it's unreachable or errors — the
+  real cause is logged server-side only, never echoed back
 - `POST /v1/ktp/jobs` — multipart image upload, enqueues the job onto Redis (via `arq`), returns a job id immediately
 - `GET /v1/ktp/jobs/{id}` — poll job status (`queued`/`in_progress`/`complete`) and result once done
 - `GET /health` — liveness check
@@ -1430,3 +1432,20 @@ than redesigning the generator off a single sample.
   a fake agree with itself takes a minute. Its false-positive rate on
   genuine cards also hasn't been measured beyond the logic and tests; the
   next real-card test should confirm a genuine card passes.
+- **OCR failures now return a clean 503/504 instead of an unhandled 500.**
+  Found while validating a dependency upgrade: one OCR request ran past
+  `RemoteOcrService`'s 30s timeout, and the raw `httpx.ReadTimeout`
+  escaped `/v1/ktp/extract` as a bare 500. Same for OCR being down,
+  returning an error (including a `KTP_OCR_INTERNAL_KEY` mismatch, 401),
+  or answering with something that isn't valid KTP fields. Fixed in layers:
+  the `OcrService` contract (`libs/ktp_interfaces`) now defines
+  `OcrUnavailableError` / `OcrTimeoutError`; `RemoteOcrService` translates
+  httpx and validation failures into them (original exception chained for
+  the logs); the endpoint maps them to 504 (timeout) or 503 (everything
+  else) with a generic message — the real cause is logged server-side
+  only, the same no-leak rule as the job-failure endpoint.
+  Tests written first and confirmed to reproduce the bug (all 4 failed
+  with the raw exceptions escaping) before the fix. Then verified against
+  the live stack: pausing the ocr container (accepts connections, never
+  answers) → 504 after exactly 30s; stopping it → 503 in ~4s; the API's
+  own `/health` stayed up throughout. 108 tests passing (4 new).
