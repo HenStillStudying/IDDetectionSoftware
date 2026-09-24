@@ -295,6 +295,31 @@ Set `KTP_API_KEY` to require an `X-API-Key` header on the `/v1/*` routes
 (unset in dev, required in any shared environment). Set `KTP_REDIS_URL` to
 point at a non-default Redis (default `redis://localhost:6379`).
 
+> **What `status: ok` does — and does not — mean.** It means *an image
+> that looks like a KTP was found and its fields were read*. It does **not**
+> mean the card is genuine or belongs to a real person. A fabricated card
+> passes every check this system has: the synthetic cards produced by this
+> project's own `training/ktp_dataset_generator.py` are detected 30/30
+> (the detector was trained on nothing else), read at ~90% field accuracy,
+> carry structurally valid NIKs (validation checks the NIK's *format*, not
+> whether it's registered), and only draw a non-suspicious "no EXIF" note
+> from the forensics layer. The same would very likely hold for a
+> fabricated card that's printed and photographed.
+>
+> One cheap layer now catches *careless* fakes: `nik_consistency` checks
+> that the birth date and gender encoded in the NIK match the ones printed
+> on the same card (a genuine card can't disagree with itself). It flags
+> every one of this project's own synthetic cards whose birth date OCR
+> actually read — but anyone who knows the NIK format can make a fake agree
+> with itself, so a pass means little on its own. Check `fields_checked`
+> too: a pass on gender alone is a coin flip, not evidence. Treat the
+> output as
+> *extracted data to be verified*, never as *identity verification*.
+> Closing that gap takes things single-image analysis can't provide: an
+> authoritative registry lookup (Dukcapil), live camera capture instead of
+> uploaded files, detection of the card's physical security features, and
+> human review of uncertain cases — none of which exist here yet.
+
 **OCR service** (`services/ocr`):
 - `POST /v1/ocr/extract` — multipart image (an already-rectified card), returns `KtpFields` JSON
 - `GET /health` — only returns `ok` once the OCR model has finished loading (warm-up runs at
@@ -1361,3 +1386,36 @@ than redesigning the generator off a single sample.
   caller got the same pool instance — reverting the fix makes the same 10
   concurrent callers create 10 separate pools, confirming the test actually
   catches the bug it's named for. 90 tests passing (1 new).
+- **NIK self-consistency check — a first, cheap layer against fabricated
+  cards.** Prompted by a plain question: would one of this project's own
+  synthetic cards pass the pipeline? Yes, completely — detected, read, NIK
+  structurally valid, forensics clean (see the note under "API"). But a
+  NIK encodes the holder's birth date and gender (day of birth, +40 for
+  women), both fixed for life and also printed on the card as separate
+  fields. Checked against the synthetic ground truth first: **30/30
+  generated cards contradict their own NIK's birth date, 15/30 its
+  gender** — the generator picks each field independently, which a real
+  card can't. `check_nik_consistency` (libs/ktp_schema/nik.py) now
+  compares them, surfaced as `nik_consistency` on the result plus a
+  `NIK consistency:` warning. Deliberate design choices:
+  - Birth date and gender only, **not** region codes: a NIK is assigned
+    once for life and doesn't change when someone moves or a province is
+    split, so a genuine card can legitimately disagree with its printed
+    province — checking it would flag real people.
+  - Dates compared by digits, not an exact `DD-MM-YYYY` format, since
+    real-card OCR has dropped one or both of the date's hyphens; only the
+    year's last 2 digits (the NIK doesn't encode the century).
+  - Unreadable fields are skipped, never flagged, and fields (the NIK
+    included) only take part when read at confidence ≥ 0.8 — a single
+    misread digit would otherwise look exactly like a fabricated card.
+  **Measured through the real pipeline** on all 30 synthetic cards: 28
+  flagged, 2 passed. The 2 aren't a gap in the check — OCR never read their
+  birth date at all, so only gender was compared, and it matched by
+  chance. Every card whose birth date was actually read was flagged (28/28).
+  Tests confirmed to catch the bug they're named for: with the check
+  sabotaged to never report a mismatch, exactly the 3 flagging tests fail.
+  104 tests passing (11 new).
+  **What this does not do**: stop anyone who knows the NIK format — making
+  a fake agree with itself takes a minute. Its false-positive rate on
+  genuine cards also hasn't been measured beyond the logic and tests; the
+  next real-card test should confirm a genuine card passes.

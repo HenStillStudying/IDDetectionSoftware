@@ -2,7 +2,7 @@ import datetime
 
 import pytest
 
-from ktp_schema.nik import NikGender, parse_nik, validate_nik
+from ktp_schema.nik import NikGender, check_nik_consistency, parse_nik, validate_nik
 
 VALID_MALE_NIK = "3205121507900007"    # province 32, city 05, district 12, 15-07-1990, seq 0007
 VALID_FEMALE_NIK = "3205125507900007"  # same but day+40 => female
@@ -94,3 +94,57 @@ def test_parse_nik_raises_cleanly_on_leap_day_resolving_to_a_non_leap_year():
     assert validate_nik(nik).is_valid
     with pytest.raises(ValueError, match="Invalid NIK"):
         parse_nik(nik, reference_year=2026)
+
+
+# --- check_nik_consistency: NIK vs the birth date/gender printed on the card ---
+# VALID_MALE_NIK encodes 15-07-(19)90, male; VALID_FEMALE_NIK the same date
+# with the female +40 day offset.
+
+
+def test_consistent_male_card_passes():
+    checked, mismatches = check_nik_consistency(VALID_MALE_NIK, "15-07-1990", "LAKI-LAKI")
+    assert checked == ["tanggal_lahir", "jenis_kelamin"]
+    assert mismatches == []
+
+
+def test_consistent_female_card_passes():
+    checked, mismatches = check_nik_consistency(VALID_FEMALE_NIK, "15-07-1990", "PEREMPUAN")
+    assert checked == ["tanggal_lahir", "jenis_kelamin"]
+    assert mismatches == []
+
+
+def test_birth_date_contradicting_nik_is_flagged():
+    _, mismatches = check_nik_consistency(VALID_MALE_NIK, "11-12-1989", "LAKI-LAKI")
+    assert len(mismatches) == 1
+    assert "birth date" in mismatches[0]
+
+
+def test_gender_contradicting_nik_is_flagged():
+    _, mismatches = check_nik_consistency(VALID_MALE_NIK, "15-07-1990", "PEREMPUAN")
+    assert len(mismatches) == 1
+    assert "gender" in mismatches[0]
+
+
+def test_ocr_degraded_date_formats_are_not_flagged():
+    # Real-card OCR has dropped one or both of the date's hyphens; a
+    # genuine card must not be flagged for how OCR spaced its date.
+    for printed in ("15-07 1990", "15-071990", "15 07 1990"):
+        checked, mismatches = check_nik_consistency(VALID_MALE_NIK, printed, "LAKI-LAKI")
+        assert "tanggal_lahir" in checked, printed
+        assert mismatches == [], printed
+
+
+def test_unreadable_fields_are_skipped_not_flagged():
+    # An OCR miss (absent, partial, or garbled field) must never look like
+    # a forgery — it's simply not compared.
+    for date, gender in ((None, None), ("15-07-19", ""), ("garbled", "L4KI")):
+        checked, mismatches = check_nik_consistency(VALID_MALE_NIK, date, gender)
+        assert checked == []
+        assert mismatches == []
+
+
+def test_only_the_last_two_year_digits_are_compared():
+    # The NIK doesn't encode the century, so 1990 and 2090 are
+    # indistinguishable from the NIK alone — not a mismatch.
+    _, mismatches = check_nik_consistency(VALID_MALE_NIK, "15-07-2090", "LAKI-LAKI")
+    assert mismatches == []

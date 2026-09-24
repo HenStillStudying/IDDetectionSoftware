@@ -32,6 +32,21 @@ class NikValidation(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class NikConsistency(BaseModel):
+    """Whether the NIK agrees with the birth date and gender printed on the
+    same card. `consistent=False` means the card contradicts itself — a
+    genuine card can't, so it's a strong sign of a fabricated or tampered
+    card (or, rarely, an OCR misread that still cleared the confidence
+    gate). `consistent=True` only means these two checks passed; it is not
+    proof the card is genuine — anyone who knows the NIK format can make a
+    fake agree with itself.
+    """
+
+    fields_checked: list[str]
+    consistent: bool
+    mismatches: list[str] = Field(default_factory=list)
+
+
 class ForensicsResult(BaseModel):
     """Tier-1 tamper-detection signals on the uploaded photo — classical
     image-forensics heuristics, not a verdict. A clean result here is not
@@ -55,6 +70,9 @@ class KtpExtractionResult(BaseModel):
     bounding_box: BoundingBox | None = None
     fields: KtpFields | None = None
     nik_validation: NikValidation | None = None
+    # None when not checkable: no structurally valid NIK, or neither birth
+    # date nor gender was read confidently enough to compare against it.
+    nik_consistency: NikConsistency | None = None
     forensics: ForensicsResult | None = None
     overall_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     warnings: list[str] = Field(default_factory=list)

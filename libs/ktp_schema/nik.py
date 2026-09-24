@@ -146,3 +146,59 @@ def validate_nik(nik: str) -> NikValidationResult:
         errors.append(f"day {day} is invalid for month {month}")
 
     return NikValidationResult(is_valid=not errors, errors=errors)
+
+
+def check_nik_consistency(
+    nik: str, tanggal_lahir: str | None, jenis_kelamin: str | None
+) -> tuple[list[str], list[str]]:
+    """Cross-checks a structurally valid NIK against the birth date and
+    gender printed elsewhere on the same card.
+
+    Both are fixed for life and encoded in every genuine NIK (day of birth,
+    +40 for women; month; 2-digit year), so a real card never disagrees with
+    itself here — but a fabricated one easily can (every card produced by
+    this project's own synthetic generator does, since it picks each field
+    independently). Only birth date and gender are compared: the NIK's
+    *region* codes are assigned once for life and don't change when someone
+    moves or a province is split, so a genuine card can legitimately differ
+    from its printed province.
+
+    Returns (fields_checked, mismatches). A field that's missing or can't be
+    parsed is skipped, never counted as a mismatch — an OCR miss must not
+    look like a forgery. Only the year's last 2 digits are compared, since
+    the NIK doesn't encode the century.
+    """
+    checked: list[str] = []
+    mismatches: list[str] = []
+
+    nik_day_raw = int(nik[6:8])
+    nik_is_female = nik_day_raw > 40
+    nik_day = nik_day_raw - 40 if nik_is_female else nik_day_raw
+    nik_month = int(nik[8:10])
+    nik_yy = nik[10:12]
+
+    # By digits rather than an exact "DD-MM-YYYY" format: real-card OCR has
+    # dropped one or both of the date's hyphens ("13-03 2007", "13-032007"),
+    # and a genuine card must not be flagged for how OCR spaced its date.
+    date_digits = re.sub(r"\D", "", tanggal_lahir or "", flags=re.ASCII)
+    if len(date_digits) == 8:
+        checked.append("tanggal_lahir")
+        day, month, yy = int(date_digits[0:2]), int(date_digits[2:4]), date_digits[6:8]
+        if (day, month, yy) != (nik_day, nik_month, nik_yy):
+            mismatches.append(
+                f"printed birth date {date_digits[0:2]}-{date_digits[2:4]}-{date_digits[4:8]} "
+                f"does not match the NIK's encoded birth date "
+                f"{nik_day:02d}-{nik_month:02d}-**{nik_yy}"
+            )
+
+    gender = (jenis_kelamin or "").strip().upper()
+    if gender in (NikGender.MALE.value, NikGender.FEMALE.value):
+        checked.append("jenis_kelamin")
+        printed_is_female = gender == NikGender.FEMALE.value
+        if printed_is_female != nik_is_female:
+            nik_gender = NikGender.FEMALE if nik_is_female else NikGender.MALE
+            mismatches.append(
+                f"printed gender {gender} does not match the NIK's encoded gender {nik_gender.value}"
+            )
+
+    return checked, mismatches

@@ -15,6 +15,8 @@ from ktp_schema import (
     ExtractionStatus,
     KtpExtractionResult,
     KtpFields,
+    NikConsistency,
+    check_nik_consistency,
     validate_nik,
 )
 from ktp_schema.result import NikValidation
@@ -23,6 +25,12 @@ from ktp_interfaces import DetectionService, OcrService
 from . import forensics
 
 LOW_CONFIDENCE_THRESHOLD = 0.6
+
+# Fields only take part in the NIK consistency check when read at least
+# this confidently — including the NIK itself. A single OCR misread digit
+# would otherwise look exactly like a self-contradicting (fabricated) card.
+# Correct reads in this project typically score ~0.96-0.99.
+CONSISTENCY_MIN_CONFIDENCE = 0.8
 
 # A real phone photo runs several times larger than the 960x720 synthetic
 # images this project was benchmarked against — measured directly, that
@@ -88,9 +96,13 @@ class KtpExtractionPipeline:
         nik_validation = self._validate_nik_field(fields.nik.value)
         overall_confidence = self._overall_confidence(bbox, fields)
 
+        nik_consistency = self._check_nik_consistency(fields, nik_validation)
+
         warnings: list[str] = list(forensics_result.warnings)
         if nik_validation is not None and not nik_validation.is_valid:
             warnings.extend(f"NIK: {err}" for err in nik_validation.errors)
+        if nik_consistency is not None and not nik_consistency.consistent:
+            warnings.extend(f"NIK consistency: {m}" for m in nik_consistency.mismatches)
 
         status = (
             ExtractionStatus.LOW_CONFIDENCE
@@ -103,6 +115,7 @@ class KtpExtractionPipeline:
             bounding_box=bbox,
             fields=fields,
             nik_validation=nik_validation,
+            nik_consistency=nik_consistency,
             forensics=forensics_result,
             overall_confidence=overall_confidence,
             warnings=warnings,
@@ -115,6 +128,25 @@ class KtpExtractionPipeline:
             return None
         result = validate_nik(nik_value)
         return NikValidation(is_valid=result.is_valid, errors=result.errors)
+
+    @staticmethod
+    def _check_nik_consistency(
+        fields: KtpFields, nik_validation: NikValidation | None
+    ) -> NikConsistency | None:
+        if nik_validation is None or not nik_validation.is_valid:
+            return None
+        if fields.nik.confidence < CONSISTENCY_MIN_CONFIDENCE:
+            return None
+
+        def confident(field) -> str | None:
+            return field.value if field.confidence >= CONSISTENCY_MIN_CONFIDENCE else None
+
+        checked, mismatches = check_nik_consistency(
+            fields.nik.value, confident(fields.tanggal_lahir), confident(fields.jenis_kelamin)
+        )
+        if not checked:
+            return None
+        return NikConsistency(fields_checked=checked, consistent=not mismatches, mismatches=mismatches)
 
     @staticmethod
     def _overall_confidence(bbox: BoundingBox, fields: KtpFields) -> float:
