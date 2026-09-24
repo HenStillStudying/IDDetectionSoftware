@@ -159,6 +159,17 @@ docker compose up --build
   confidence from 0.9243 to 0.9270 on this card — comparing an HTTP run
   against an in-process one would have been apples to oranges.)
 
+- **Fast rebuilds after code changes**: both Dockerfiles install every
+  third-party dependency from the dependency manifests alone (read out of
+  the `pyproject.toml` files by `infra/pyproject_deps.py`, so the pins
+  still live in one place), before copying in any of this repo's code;
+  our own packages are installed last with `--no-deps`. The ocr image's
+  model-conversion stage also branches off before any source is copied.
+  Measured: a one-line edit in `libs/` used to rebuild everything after it
+  (~6 min, re-downloading PyTorch/PaddlePaddle); it now rebuilds in ~13s,
+  with every dependency layer and the model conversion reused from cache.
+  The reorder didn't change what's installed — `pip freeze` is identical
+  to before in both images (67 and 81 packages), and `pip check` is clean.
 - **Survives crashes and reboots**: every service has
   `restart: unless-stopped` (only an explicit `docker compose stop`/`down`
   keeps it down). Tested, not assumed: killing the api container's main
