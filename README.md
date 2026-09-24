@@ -13,7 +13,7 @@ services/api/         FastAPI gateway: /v1/ktp/extract (sync) and /v1/ktp/jobs (
 services/detection/   YOLOv8 card detection + contour-based deskew (YoloDetectionService), in-process
 services/ocr/         Standalone PaddleOCR microservice — its own FastAPI app, its own process
 training/              Synthetic KTP dataset generator, YOLO training script, and a ground-truth pipeline evaluator
-infra/                 Dockerfiles, deployment configs
+infra/                 Deployment runbook (DEPLOY.md) and Docker build helpers
 ```
 
 **Detection runs in-process** inside the API service (it's cheap — a YOLOv8n
@@ -104,11 +104,19 @@ uvicorn ocr_app.main:app --port 8001
 
 `docker-compose.yml` at the repo root runs all four processes as
 containers — `redis`, `ocr`, `api`, and `worker` (the last two share one
-image/Dockerfile, just a different command). Only `api` publishes a port
-to the host; `redis` and `ocr` are reachable only from other containers on
-the compose network, matching the audit's recommendation to not rely on
-"nothing exposes this port" as the only control once a real network
-topology exists.
+image/Dockerfile, just a different command). Only `api` publishes a port,
+and only on `127.0.0.1:8000` — never all interfaces, because on a server
+Docker's iptables rules bypass `ufw` entirely, so a bare `"8000:8000"` would
+be public regardless of the firewall (verified locally: the host's other
+addresses now refuse the connection). `redis` and `ocr` are reachable only
+from other containers on the compose network, matching the audit's
+recommendation to not rely on "nothing exposes this port" as the only
+control once a real network topology exists.
+
+**Deploying to a VPS:** see [`infra/DEPLOY.md`](infra/DEPLOY.md) — a
+step-by-step runbook (SSH hardening, firewall, Docker install, secrets,
+verification over an SSH tunnel, day-to-day operations), with server
+sizing based on measured memory use.
 
 ```bash
 cp .env.example .env   # fill in a real REDIS_PASSWORD at minimum

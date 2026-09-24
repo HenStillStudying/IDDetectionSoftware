@@ -6,7 +6,7 @@
 #   cp .env.example .env   # fill in real values — never commit .env
 #   docker compose up --build
 #
-# Only `api` publishes a port to the host (8000). redis and ocr are
+# Only `api` publishes a port, and only on 127.0.0.1:8000. redis and ocr are
 # reachable only from other services on this compose network — see
 # services/ocr/ocr_app/main.py's KTP_OCR_INTERNAL_KEY and the README's
 # "Data handling & compliance" section for why that's deliberate, not an
@@ -75,7 +75,12 @@ services:
     volumes:
       - ./training/runs/ktp_detector/weights:/app/weights:ro
     ports:
-      - "8000:8000"
+      # Localhost only. A bare "8000:8000" binds every interface, and on a
+      # server Docker's own iptables rules bypass ufw entirely — the port
+      # would be public no matter what the firewall says. Until HTTPS sits
+      # in front (a reverse proxy on this host), reach it over an SSH
+      # tunnel; see infra/DEPLOY.md. Local dev is unaffected.
+      - "127.0.0.1:8000:8000"
     depends_on:
       redis:
         condition: service_healthy
