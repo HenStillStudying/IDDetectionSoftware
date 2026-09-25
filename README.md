@@ -1457,3 +1457,22 @@ than redesigning the generator off a single sample.
   the live stack: pausing the ocr container (accepts connections, never
   answers) → 504 after exactly 30s; stopping it → 503 in ~4s; the API's
   own `/health` stayed up throughout. 108 tests passing (4 new).
+- **First real-world negative test: a real Indonesian driver's license
+  (SIM) is correctly rejected.** Every earlier false-positive check used
+  synthetic look-alikes — including a SIM mockup that fooled the detector
+  when it filled the frame edge-to-edge, until the edge-to-edge training
+  fix described above. Tested through the live docker-compose stack's
+  `/demo` page: `no_card_detected`. Encouraging evidence that the fix
+  holds outside synthetic data, but a single card — not a measured
+  false-positive rate. (Kept local; nothing from the card recorded here.)
+- **Known limitation, observed in the same session: steeply angled photos
+  of a real KTP aren't detected** (`no_card_detected`). Expected from the
+  training data: in-plane rotation was only ±15°, and perspective
+  distortion only a 2–6% warp on half the images, so a steep viewing
+  angle is outside anything the detector learned. Deliberately not fixed
+  for this demo stage — the intended handling is asking the user to
+  photograph the card straight-on. If it ever needs fixing, widening the
+  generator's rotation/perspective ranges and retraining is the cheap
+  route (validated against a real photo *before* promoting the weights,
+  per the retraining lesson above); a 4-corner keypoint model is the
+  robust one.
