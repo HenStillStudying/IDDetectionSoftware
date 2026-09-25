@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 
 from PIL import Image
 from PIL.Image import Image as PILImage
@@ -176,3 +177,20 @@ def test_exif_rotated_phone_photos_reach_detection_upright():
         assert received.size == (300, 200), tag  # landscape again, not portrait
         r, g, b = received.getpixel((10, 10))  # the marker is back top-left
         assert r > 200 and g < 60 and b < 60, (tag, (r, g, b))
+
+
+def test_heic_uploads_are_decoded():
+    # HEIC is iPhone's default photo format. Previously it only worked
+    # because ultralytics pip-installed a HEIF plugin at runtime on the
+    # first upload that failed to open; the plugin is now a pinned
+    # dependency registered in pipeline.py. The fixture is a small synthetic
+    # HEVC-coded HEIC (same 'heic' brand an iPhone writes) of the marker image.
+    heic = (Path(__file__).parent / "fixtures" / "marker.heic").read_bytes()
+    detection = _CapturingDetectionService()
+    result = KtpExtractionPipeline(detection, StubOcrService()).run(heic)
+
+    assert result.status != ExtractionStatus.INVALID_IMAGE
+    assert detection.received is not None
+    assert detection.received.size == (300, 200)
+    r, g, b = detection.received.getpixel((10, 10))
+    assert r > 200 and g < 60 and b < 60, (r, g, b)

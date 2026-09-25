@@ -1509,3 +1509,34 @@ than redesigning the generator off a single sample.
   responses: the pre-fix page reproduced the NaN% banner for 413/429/504;
   the fixed page shows each message, renders an `<img onerror>` payload as
   plain text, and leaves the existing 404 path unchanged.
+- **Security fix, found while testing iPhone HEIC uploads: ultralytics
+  was pip-installing packages inside the running API, triggered by user
+  uploads.** A real HEVC-coded HEIC (brand `heic`, like an iPhone's) that
+  a fresh `python` in the image couldn't open was nonetheless processed
+  fine by the live API — because importing ultralytics monkey-patches
+  `PIL.Image.open` process-wide, and on **any** image that fails to open
+  (HEIC, or simply a corrupt/non-image upload) it ran
+  `pip install pi-heif` from PyPI at request time: unpinned, bypassing
+  this project's dependency pinning, adding ~6.5s to that request, and
+  repeating on every fresh container. It also sends usage telemetry on
+  every `predict` and does DNS lookups at startup. Confirmed from the
+  container's own logs and `pip list` before/after one request.
+  The obvious one-line fix is a trap: `YOLO_AUTOINSTALL=false` alone makes
+  the patched `Image.open` fail with `ModuleNotFoundError` on every junk
+  upload — an unhandled 500 (verified). Fixed in two layers instead:
+  - `pi-heif==1.4.0` is now a pinned dependency, registered explicitly in
+    `pipeline.py` — HEIC support is deliberate, not a side effect.
+  - `ktp_detection/__init__.py` sets `YOLO_OFFLINE=true` and
+    `YOLO_AUTOINSTALL=false` (setdefault, so an operator can override)
+    before ultralytics is first imported — in Docker and in local runs.
+    Offline disables the telemetry, the startup DNS check, and the
+    auto-install; auto-install off is an independent second guard.
+  Tests: HEIC decode through the pipeline (a 899-byte synthetic HEVC HEIC
+  fixture), ultralytics actually seeing auto-install off and offline after
+  importing `ktp_detection`, and a junk upload with ultralytics loaded
+  returning `invalid_image` while a trap fails the test if pip is ever
+  invoked. Sabotaging each layer fails its test. The ultralytics tests run
+  in subprocesses and are skipped in CI, which doesn't install
+  ultralytics. Verified live: HEIC → `ok` 16/17 (sync and async), junk →
+  422, identical `pip freeze` before/after requests on api and worker,
+  zero install lines in the logs. 112 tests passing (4 new).

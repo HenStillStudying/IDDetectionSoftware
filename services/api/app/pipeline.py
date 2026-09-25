@@ -9,6 +9,7 @@ import io
 import time
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pi_heif import register_heif_opener
 
 from ktp_schema import (
     BoundingBox,
@@ -41,6 +42,12 @@ CONSISTENCY_MIN_CONFIDENCE = 0.8
 # phone photo's pixel count by roughly 4-6x. Only ever shrinks — an
 # already-small upload is untouched.
 MAX_UPLOAD_DIMENSION = 1600
+
+# HEIC/HEIF is iPhone's default photo format; Pillow can't read it on its
+# own. Registered explicitly here (pinned in requirements.txt) — previously
+# it only worked because ultralytics pip-installed this package at runtime
+# on the first upload that failed to open. See ktp_detection/__init__.py.
+register_heif_opener()
 
 
 class KtpExtractionPipeline:
