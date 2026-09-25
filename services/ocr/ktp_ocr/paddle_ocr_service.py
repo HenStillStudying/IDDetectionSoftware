@@ -133,7 +133,7 @@ class PaddleOcrService(OcrService):
             # Runtime instead of PaddlePaddle's native inference engine —
             # measured ~3.4x faster on CPU with byte-for-byte identical
             # recognized text on the one test case tried so far (see
-            # README; not yet re-measured on this specific deployment's
+            # docs/CHANGELOG.md; not yet re-measured on this specific deployment's
             # hardware via evaluate_pipeline.py, which is why this isn't
             # the default). Requires model directories already converted
             # to ONNX format (`paddlex --paddle2onnx` — note this

@@ -56,7 +56,7 @@ def get_ocr_service() -> OcrService:
     KTP_OCR_ENGINE=onnxruntime plus KTP_OCR_ONNX_DET_DIR/KTP_OCR_ONNX_REC_DIR
     (pointing at model directories already converted via
     `paddlex --paddle2onnx`) to use the ONNX Runtime path instead — see
-    PaddleOcrService and the README for the measured tradeoffs.
+    PaddleOcrService and docs/CHANGELOG.md for the measured tradeoffs.
     """
     from ktp_ocr import PaddleOcrService
 

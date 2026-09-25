@@ -43,7 +43,7 @@ def build_ocr_service() -> OcrService:
     OCR runs as its own service (not imported in-process here) because
     PaddleOCR's GPU build crashes with Windows DLL conflicts when loaded
     alongside PyTorch (used by the detection service below) — see
-    services/ocr's README for the full story.
+    docs/CHANGELOG.md for the full story.
     """
     if settings.ocr_service_url:
         logger.info("Using remote OCR service at %s", settings.ocr_service_url)

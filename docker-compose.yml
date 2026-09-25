@@ -1,5 +1,5 @@
-# Built and verified end to end — see the README's docker-compose section
-# for what was checked. Both images pull in heavy dependencies (PyTorch for
+# Built and verified end to end — see docs/DEVELOPMENT.md's docker-compose
+# section for what was checked. Both images pull in heavy dependencies (PyTorch for
 # api, PaddlePaddle for ocr), so expect the first build to take a while.
 #
 # Usage:
@@ -8,8 +8,8 @@
 #
 # Only `api` publishes a port, and only on 127.0.0.1:8000. redis and ocr are
 # reachable only from other services on this compose network — see
-# services/ocr/ocr_app/main.py's KTP_OCR_INTERNAL_KEY and the README's
-# "Data handling & compliance" section for why that's deliberate, not an
+# services/ocr/ocr_app/main.py's KTP_OCR_INTERNAL_KEY and
+# docs/COMPLIANCE.md for why that's deliberate, not an
 # oversight.
 
 # Shared by every service below (merged in with `<<: *service-defaults`).
@@ -38,7 +38,7 @@ services:
       timeout: 3s
       retries: 5
     # Deliberately no volume: job data already carries a 10-minute TTL
-    # (see README, "Redis job args no longer default to a 24-hour
+    # (see docs/CHANGELOG.md, "Redis job args no longer default to a 24-hour
     # lifetime"), so there's nothing worth persisting across a restart.
 
   ocr:

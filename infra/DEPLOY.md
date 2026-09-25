@@ -10,8 +10,8 @@ SSH tunnel**. That's deliberate, not a missing step — see
 [Why no public port yet](#why-no-public-port-yet). Public HTTPS access is
 the next step once there's a domain (see [Not covered yet](#not-covered-yet)).
 
-> **Real ID data:** this is still a demo/portfolio-stage system — see the
-> README's "Data handling & compliance" section. Don't put other people's
+> **Real ID data:** this is still a demo/portfolio-stage system — see
+> [`docs/COMPLIANCE.md`](../docs/COMPLIANCE.md). Don't put other people's
 > real KTP photos through a deployed instance until the "before real
 > production" items there (consent, per-user auth, retention policy, DPIA)
 > are done.

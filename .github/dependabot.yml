@@ -2,7 +2,7 @@
 # nothing updates on its own — including security fixes. This opens weekly
 # pull requests for new versions; CI then runs the test suite against them.
 #
-# Known blind spots (see README):
+# Known blind spots (see docs/DEVELOPMENT.md, "Test"):
 # - torch/torchvision (services/api/Dockerfile) and paddle2onnx
 #   (services/ocr/Dockerfile) are pinned inside `RUN pip install` lines,
 #   which Dependabot doesn't read — update those by hand.

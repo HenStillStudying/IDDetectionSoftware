@@ -57,7 +57,7 @@ FROM deps
 COPY --from=onnx-models /onnx_models /app/onnx_models
 
 # ONNX Runtime by default: ~3-7x faster on CPU than native PaddlePaddle with
-# identical output (see README). Set KTP_OCR_ENGINE=paddle to fall back to
+# identical output (see docs/CHANGELOG.md). Set KTP_OCR_ENGINE=paddle to fall back to
 # the native engine — which downloads its own models on first start.
 ENV KTP_OCR_ENGINE=onnxruntime \
     KTP_OCR_ONNX_DET_DIR=/app/onnx_models/PP-OCRv6_small_det \
