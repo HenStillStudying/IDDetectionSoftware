@@ -191,6 +191,16 @@ submitBtn.addEventListener('click', async () => {
   try {
     const resp = await fetch('/v1/ktp/extract', { method: 'POST', body: form });
     const data = await resp.json();
+    // Error responses (413 too large, 401 auth, 429 rate limit, 503/504 OCR
+    // unavailable) carry {"detail": ...} or {"error": ...} and no `status`
+    // field — without this they fell through to render() and showed
+    // "Low confidence extraction (NaN%)" with an empty table.
+    if (!resp.ok && !data.status) {
+      showError(resp.status === 413
+        ? 'This photo is too large (maximum 10 MB). Try a smaller or more compressed photo.'
+        : (data.detail || data.error || `Request failed (HTTP ${resp.status}).`));
+      return;
+    }
     render(data, resp.status);
   } catch (err) {
     statusEl.innerHTML = '';
@@ -201,6 +211,15 @@ submitBtn.addEventListener('click', async () => {
     statusEl.innerHTML = '';
   }
 });
+
+function showError(message) {
+  // textContent, not innerHTML: the message can come from the server.
+  const banner = document.createElement('div');
+  banner.className = 'banner err';
+  banner.textContent = message;
+  resultEl.replaceChildren(banner);
+  resultEl.style.display = 'block';
+}
 
 function render(data, httpStatus) {
   resultEl.style.display = 'block';

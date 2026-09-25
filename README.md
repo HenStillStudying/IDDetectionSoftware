@@ -1492,3 +1492,20 @@ than redesigning the generator off a single sample.
   tags give results identical to upright through the real detector + OCR
   (16/17, NIK valid), confirmed again through the live docker-compose
   stack. 109 tests passing (1 new).
+- **Upload size limit tested at the boundary, and a `/demo` bug it
+  exposed fixed.** The API side already behaved correctly, verified
+  through the live stack with synthetic noisy images sized like real
+  uploads: a 32 MB high-resolution JPEG and a 19 MB PNG both get `413` in
+  ~4 ms (rejected before the body is read — the size middleware from the
+  security audit), on both `/v1/ktp/extract` and `/v1/ktp/jobs`; a 9.68 MB
+  JPEG just under the 10 MB limit is accepted, downscaled, and read in
+  full (17/17). But the `/demo` page only understood pipeline results:
+  any error response (`413`, `401`, `429`, `503`, `504` — all
+  `{"detail"|"error": ...}` with no `status` field) fell through and
+  showed **"Low confidence extraction (NaN%)"** over an empty field table.
+  Now it shows a proper error banner (a friendlier message for 413), set
+  via `textContent` so server text can't inject markup. Checked by running
+  the page's real click handler under Node against a stubbed DOM and faked
+  responses: the pre-fix page reproduced the NaN% banner for 413/429/504;
+  the fixed page shows each message, renders an `<img onerror>` payload as
+  plain text, and leaves the existing 404 path unchanged.
