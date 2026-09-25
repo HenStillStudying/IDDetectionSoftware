@@ -1540,3 +1540,23 @@ than redesigning the generator off a single sample.
   ultralytics. Verified live: HEIC → `ok` 16/17 (sync and async), junk →
   422, identical `pip freeze` before/after requests on api and worker,
   zero install lines in the logs. 112 tests passing (4 new).
+- **Two cards in one photo — tested, one known limitation documented (not
+  fixed).** Synthetic scenes (1600×900, two cards side by side, each
+  slightly tilted, random background), real detector + OCR, 20 scenes per
+  scenario, checking which card the returned box actually overlaps and
+  whether the NIK and name come from the same card:
+  - **KTP + a look-alike** (the generator's hard-negative distractors):
+    picked the KTP 20/20; the detector didn't even register the look-alike.
+  - **KTP + a larger, closer look-alike:** picked the KTP 20/20 (once the
+    look-alike also got a box, but lost on confidence).
+  - **Two different KTPs:** both detected every time, and — the scary case
+    — no box ever spanned both cards and **fields were never mixed between
+    the two people**. But which card is returned is effectively a **coin
+    flip** (left 11×, right 9×), decided by whichever scores marginally
+    more confident, and it happens **silently**: nothing in the response
+    says a second card was there. For an ID system that means returning
+    *someone's* identity without knowing whose was intended.
+  **Deliberately left as-is at demo stage.** The fix is small since the
+  detector already sees both boxes: when more than one KTP is detected,
+  refuse with "more than one card found — photograph one card at a time"
+  (safest when identity is ambiguous), or at minimum add a warning.
