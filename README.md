@@ -1476,3 +1476,19 @@ than redesigning the generator off a single sample.
   route (validated against a real photo *before* promoting the weights,
   per the retraining lesson above); a 4-corner keypoint model is the
   robust one.
+- **Phone photos stored rotated (EXIF orientation) now work — previously
+  broken.** Phones often save the pixels rotated plus an EXIF Orientation
+  tag that every photo viewer applies; the pipeline ignored it. Found by
+  testing rather than reports: the synthetic sample card, stored rotated
+  with each tag a phone produces (each confirmed to display upright when
+  the tag is applied), gave tag 6 (the common portrait case) →
+  `no_card_detected`; tag 8 → detected but **0/17** fields read; tag 3 →
+  6/17, no NIK — versus 16/17 upright. It never surfaced in real-card
+  testing because that photo came via WhatsApp, which bakes the rotation
+  into the pixels; an upload straight from a phone camera usually keeps
+  the tag. Fixed with `ImageOps.exif_transpose` at decode time
+  (`pipeline.py`). Regression test written first and confirmed failing
+  (detection received the image in portrait); after the fix all three
+  tags give results identical to upright through the real detector + OCR
+  (16/17, NIK valid), confirmed again through the live docker-compose
+  stack. 109 tests passing (1 new).

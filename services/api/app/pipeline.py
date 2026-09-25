@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 import time
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ktp_schema import (
     BoundingBox,
@@ -54,6 +54,11 @@ class KtpExtractionPipeline:
         try:
             image = Image.open(io.BytesIO(image_bytes))
             image.load()
+            # Phones often store the pixels rotated plus an EXIF Orientation
+            # tag that every photo viewer applies. Without this, a photo the
+            # user saw upright reaches the detector sideways or upside down
+            # (no card detected, or OCR reading rotated text).
+            image = ImageOps.exif_transpose(image)
             image = image.convert("RGB")
             image = _downscale_if_needed(image)
         except (UnidentifiedImageError, OSError):
