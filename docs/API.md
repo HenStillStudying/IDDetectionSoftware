@@ -2,6 +2,10 @@
 
 **Main API** (`services/api`):
 - `POST /v1/ktp/extract` — multipart image upload, returns extraction result synchronously.
+  Statuses: `ok` and `low_confidence` (200), `no_card_detected` (404),
+  `invalid_image` and `multiple_cards_detected` (422). A photo with more than one
+  card is refused rather than read: no fields are returned, since there's no
+  telling whose card was meant.
   `504` if the OCR service times out (30s), `503` if it's unreachable or errors — the
   real cause is logged server-side only, never echoed back
 - `POST /v1/ktp/jobs` — multipart image upload, enqueues the job onto Redis (via `arq`), returns a job id immediately

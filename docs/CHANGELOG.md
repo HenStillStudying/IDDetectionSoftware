@@ -1149,3 +1149,34 @@ than redesigning the generator off a single sample.
   detector already sees both boxes: when more than one KTP is detected,
   refuse with "more than one card found — photograph one card at a time"
   (safest when identity is ambiguous), or at minimum add a warning.
+- **Two cards in one photo: now refused (fixes the coin flip above).** When
+  the detector finds more than one card, `YoloDetectionService` raises
+  `MultipleCardsDetectedError` (a new part of the `DetectionService`
+  contract) instead of returning the most confident one. The pipeline turns
+  that into a new `multiple_cards_detected` status (HTTP 422 on the sync
+  endpoint) with no fields, no bounding box, and a warning telling the user to
+  photograph one card at a time. OCR never runs. Boxes count only at the
+  normal 0.4 detection threshold, and a box overlapping a more confident one
+  by more than half of the smaller box counts as the same card, so a
+  duplicate box on one card isn't mistaken for two.
+  - Before choosing thresholds, measured the raw boxes: all 31 single-card
+    images (30 eval + sample) give exactly one box with nothing even below
+    threshold; every two-KTP scene gives two boxes at ≥0.95 with zero overlap;
+    look-alikes almost never get a box. The exception was one scene in 20
+    where a look-alike scored 0.78, which now means that photo is refused.
+    A higher bar for the second box would avoid that on synthetic data, but
+    the real card has scored as low as 0.87, so a real second KTP could slip
+    under it. Refusing is the safer direction, so the same 0.4 threshold is
+    used for every box. Recorded in `KNOWN_ISSUES.md`.
+  - Real detector, fresh scenes: two KTPs refused 20/20. No false refusals on
+    single cards (31/31), KTP + look-alike (20/20), or KTP + larger
+    look-alike (20/20).
+  - Live Docker stack: sync returns 422 `multiple_cards_detected`, the
+    async job completes with the same status, and a single card still
+    returns 200. `/demo` shows a matching message.
+  - Tests first: pipeline (refusal, OCR never called), API (422), and
+    detector card counting with a faked model (two cards refused, a
+    below-threshold second box ignored, an overlapping duplicate not counted).
+    Each fix sabotaged and confirmed failing. The detector tests need
+    ultralytics, so CI now collects `services/detection/tests` but skips them.
+    118 tests passing (6 new).

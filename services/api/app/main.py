@@ -133,7 +133,7 @@ async def extract(file: UploadFile):
         raise HTTPException(status_code=503, detail="OCR service unavailable. Try again later.")
 
     status_code = 200
-    if result.status == ExtractionStatus.INVALID_IMAGE:
+    if result.status in (ExtractionStatus.INVALID_IMAGE, ExtractionStatus.MULTIPLE_CARDS_DETECTED):
         status_code = 422
     elif result.status == ExtractionStatus.NO_CARD_DETECTED:
         status_code = 404

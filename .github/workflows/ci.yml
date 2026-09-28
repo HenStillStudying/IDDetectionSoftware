@@ -38,7 +38,7 @@ jobs:
             -r services/ocr/requirements-dev.txt
 
       - name: Run tests
-        run: python -m pytest libs/tests services/api/tests services/ocr/tests
+        run: python -m pytest libs/tests services/api/tests services/ocr/tests services/detection/tests
 
       # Validates docker-compose.yml's syntax and variable interpolation
       # without building the (heavy) images. REDIS_PASSWORD is required by

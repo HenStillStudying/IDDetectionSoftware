@@ -26,12 +26,16 @@ from PIL import Image
 from PIL.Image import Image as PILImage
 from ultralytics import YOLO
 
-from ktp_interfaces import DetectionService
+from ktp_interfaces import DetectionService, MultipleCardsDetectedError
 from ktp_schema import BoundingBox
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.4
 CROP_MARGIN_RATIO = 0.05  # extra margin around the predicted box, as a fraction of its size
 MIN_CONTOUR_AREA_RATIO = 0.15  # skip deskewing if no confident card-shaped contour is found
+# Two confident boxes overlapping by more than this fraction of the smaller
+# one are the same card seen twice, not two cards. YOLO's own NMS removes
+# most duplicates; this also catches a box around part of the card.
+DUPLICATE_BOX_OVERLAP = 0.5
 QUAD_APPROX_EPSILON_FRACTIONS = (0.01, 0.02, 0.03, 0.05, 0.08)  # tried in order until 4 points found
 
 
@@ -42,15 +46,23 @@ class YoloDetectionService(DetectionService):
 
     def detect_and_rectify(self, image: PILImage) -> tuple[PILImage, BoundingBox] | None:
         results = self._model.predict(image, verbose=False)[0]
-        if len(results.boxes) == 0:
+        confident = sorted(
+            (
+                (tuple(box.xyxy[0].tolist()), float(box.conf[0]))
+                for box in results.boxes
+                if float(box.conf[0]) >= self._confidence_threshold
+            ),
+            key=lambda box: box[1],
+            reverse=True,
+        )
+        cards = self._distinct_cards(confident)
+        if not cards:
             return None
+        if len(cards) > 1:
+            raise MultipleCardsDetectedError(len(cards))
 
-        best = max(results.boxes, key=lambda box: float(box.conf[0]))
-        confidence = float(best.conf[0])
-        if confidence < self._confidence_threshold:
-            return None
-
-        x1, y1, x2, y2 = (int(v) for v in best.xyxy[0].tolist())
+        (x1, y1, x2, y2), confidence = cards[0]
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         bbox = BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2, detection_confidence=confidence)
 
         margin_x1, margin_y1, margin_x2, margin_y2 = self._add_margin(x1, y1, x2, y2, image.size)
@@ -58,6 +70,19 @@ class YoloDetectionService(DetectionService):
 
         upright = self._deskew(padded_crop)
         return upright, bbox
+
+    @staticmethod
+    def _distinct_cards(
+        boxes: list[tuple[tuple[float, float, float, float], float]],
+    ) -> list[tuple[tuple[float, float, float, float], float]]:
+        """Drops boxes that mostly overlap a more confident one. `boxes`
+        must be sorted by confidence, highest first.
+        """
+        kept: list[tuple[tuple[float, float, float, float], float]] = []
+        for box in boxes:
+            if all(_overlap_of_smaller(box[0], other[0]) <= DUPLICATE_BOX_OVERLAP for other in kept):
+                kept.append(box)
+        return kept
 
     @staticmethod
     def _add_margin(
@@ -209,3 +234,11 @@ class YoloDetectionService(DetectionService):
         elif angle < -45:
             angle += 90
         return angle
+
+
+def _overlap_of_smaller(a: tuple[float, ...], b: tuple[float, ...]) -> float:
+    """Intersection area as a fraction of the smaller box's area."""
+    inter_w = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    inter_h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return inter_w * inter_h / smaller if smaller > 0 else 0.0

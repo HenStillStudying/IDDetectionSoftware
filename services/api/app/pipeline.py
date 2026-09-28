@@ -21,7 +21,7 @@ from ktp_schema import (
     validate_nik,
 )
 from ktp_schema.result import NikValidation
-from ktp_interfaces import DetectionService, OcrService
+from ktp_interfaces import DetectionService, MultipleCardsDetectedError, OcrService
 
 from . import forensics
 
@@ -93,7 +93,19 @@ class KtpExtractionPipeline:
         # of the uploaded photo, not of a successful extraction.
         forensics_result = forensics.analyze(image_bytes)
 
-        detection = self._detection_service.detect_and_rectify(image)
+        try:
+            detection = self._detection_service.detect_and_rectify(image)
+        except MultipleCardsDetectedError:
+            return KtpExtractionResult(
+                status=ExtractionStatus.MULTIPLE_CARDS_DETECTED,
+                forensics=forensics_result,
+                warnings=[
+                    "More than one card was found in the image. Photograph one "
+                    "card at a time, with no other cards in view."
+                ]
+                + forensics_result.warnings,
+                processing_time_ms=_elapsed_ms(started),
+            )
         if detection is None:
             return KtpExtractionResult(
                 status=ExtractionStatus.NO_CARD_DETECTED,

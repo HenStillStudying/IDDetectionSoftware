@@ -37,10 +37,12 @@ changelog.
 - **Steep camera angles are not detected.** A strongly tilted real photo
   returned `no_card_detected`. Accepted for now: users are expected to take a
   reasonably straight photo.
-- **Two cards in one photo gives a silent coin flip.** One card is returned with
-  `status: ok` and no warning, and which one is effectively arbitrary. The
-  fields are not mixed between the two cards. The ideal fix is to refuse with a
-  "multiple cards" status.
+- **A card-like object next to a KTP can cause a refusal.** Photos with more
+  than one card are now refused (`multiple_cards_detected`). In one probe of 20
+  synthetic KTP + look-alike scenes, the detector gave one look-alike a 0.78
+  box, which is enough to refuse that photo. That is the safe direction to
+  fail, and the message tells the user to photograph one card at a time.
+  Untested with real second cards (a SIM or bank card lying next to a KTP).
 - **The 10 MB upload limit rejects some very high-resolution photos** such as
   full-size shots from high-megapixel phone modes. Those get a 413.
 

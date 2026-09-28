@@ -228,6 +228,10 @@ function render(data, httpStatus) {
     resultEl.innerHTML = `<div class="banner err">No KTP card detected in this image.</div>`;
     return;
   }
+  if (data.status === 'multiple_cards_detected') {
+    resultEl.innerHTML = `<div class="banner err">More than one card found. Photograph one card at a time, with no other cards in view.</div>`;
+    return;
+  }
   if (data.status === 'invalid_image') {
     resultEl.innerHTML = `<div class="banner err">Could not read this file as an image.</div>`;
     return;

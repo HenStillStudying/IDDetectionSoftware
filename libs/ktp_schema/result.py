@@ -12,6 +12,7 @@ from .fields import KtpFields
 class ExtractionStatus(str, Enum):
     OK = "ok"
     NO_CARD_DETECTED = "no_card_detected"
+    MULTIPLE_CARDS_DETECTED = "multiple_cards_detected"
     LOW_CONFIDENCE = "low_confidence"
     INVALID_IMAGE = "invalid_image"
     ERROR = "error"

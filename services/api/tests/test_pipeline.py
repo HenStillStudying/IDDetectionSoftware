@@ -6,7 +6,7 @@ from PIL.Image import Image as PILImage
 
 from app.pipeline import MAX_UPLOAD_DIMENSION, KtpExtractionPipeline
 from app.stub_models import StubOcrService
-from ktp_interfaces import DetectionService, OcrService
+from ktp_interfaces import DetectionService, MultipleCardsDetectedError, OcrService
 from ktp_schema import BoundingBox, ExtractionStatus, FieldValue, KtpFields
 
 
@@ -194,3 +194,28 @@ def test_heic_uploads_are_decoded():
     assert detection.received.size == (300, 200)
     r, g, b = detection.received.getpixel((10, 10))
     assert r > 200 and g < 60 and b < 60, (r, g, b)
+
+
+class _MultipleCardsDetectionService(DetectionService):
+    def detect_and_rectify(self, image: PILImage) -> tuple[PILImage, BoundingBox] | None:
+        raise MultipleCardsDetectedError(2)
+
+
+class _FailIfCalledOcrService(OcrService):
+    def extract_fields(self, rectified_card: PILImage) -> KtpFields:
+        raise AssertionError("OCR must not run when the card is ambiguous")
+
+
+def test_multiple_cards_are_refused_without_reading_any():
+    # Two KTPs in one photo used to return one of them, effectively at
+    # random, with status ok and no warning. Refusing is the only safe
+    # answer when it's ambiguous whose identity was meant.
+    pipeline = KtpExtractionPipeline(_MultipleCardsDetectionService(), _FailIfCalledOcrService())
+
+    result = pipeline.run(_photo_bytes((200, 120)))
+
+    assert result.status == ExtractionStatus.MULTIPLE_CARDS_DETECTED
+    assert result.fields is None
+    assert result.bounding_box is None
+    assert any("one card at a time" in w for w in result.warnings)
+    assert result.forensics is not None

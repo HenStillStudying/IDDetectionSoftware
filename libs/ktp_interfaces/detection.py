@@ -13,11 +13,22 @@ from PIL.Image import Image as PILImage
 from ktp_schema import BoundingBox
 
 
+class MultipleCardsDetectedError(Exception):
+    """More than one card was found in the image. Implementations raise
+    this rather than picking one: with two IDs in view there's no telling
+    whose identity the caller meant, and a silent pick would return
+    someone's data as if it were unambiguous."""
+
+    def __init__(self, count: int):
+        super().__init__(f"{count} cards detected")
+        self.count = count
+
+
 class DetectionService(ABC):
     @abstractmethod
     def detect_and_rectify(self, image: PILImage) -> tuple[PILImage, BoundingBox] | None:
         """Returns (flattened upright card image, bbox in original image coords).
 
         Returns None if no card was found above the detector's confidence
-        threshold.
+        threshold. Raises MultipleCardsDetectedError if more than one was.
         """

@@ -16,7 +16,7 @@ from app.main import JOB_EXPIRES_SECONDS, app
 from app.pipeline import KtpExtractionPipeline
 from app.redis_pool import get_redis_pool
 from app.stub_models import StubOcrService
-from ktp_interfaces import DetectionService
+from ktp_interfaces import DetectionService, MultipleCardsDetectedError
 from ktp_schema import BoundingBox
 
 
@@ -390,3 +390,19 @@ def test_ocr_malformed_response_returns_503(client):
 
     resp = _extract_with_ocr(client, lambda request: httpx.Response(200, json={"not": "ktp fields"}))
     assert resp.status_code == 503
+
+
+class _MultipleCardsDetectionService(DetectionService):
+    def detect_and_rectify(self, image):
+        raise MultipleCardsDetectedError(2)
+
+
+def test_multiple_cards_returns_422(client):
+    refusing = KtpExtractionPipeline(_MultipleCardsDetectionService(), StubOcrService())
+    with patch("app.main.pipeline", refusing):
+        resp = client.post(
+            "/v1/ktp/extract",
+            files={"file": ("photo.jpg", _fake_photo_bytes(), "image/jpeg")},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["status"] == "multiple_cards_detected"

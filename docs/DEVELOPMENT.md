@@ -203,7 +203,7 @@ KTPs (see "False-positive tested" in [CHANGELOG](CHANGELOG.md)).
 ## Test
 
 ```bash
-python -m pytest libs/tests services/api/tests services/ocr/tests
+python -m pytest libs/tests services/api/tests services/ocr/tests services/detection/tests
 ```
 
 All three suites run against stubs/fakes — none load a real model, so the

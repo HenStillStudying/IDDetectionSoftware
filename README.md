@@ -47,13 +47,14 @@ anywhere yet.
 - Handles EXIF-rotated phone photos and HEIC (iPhone) photos.
 - Rejects oversized uploads cleanly (10 MB, 413).
 - Returns 503 or 504, not a 500, when OCR is down or slow.
+- Refuses photos with more than one card instead of silently picking one.
 
 **Operations**
 
 | | |
 |---|---|
 | Memory | ~0.6 GB idle, ~1.3 GB under load |
-| Tests | 112 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
+| Tests | 118 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
 
 <details>
 <summary>Per-field accuracy (30 synthetic cards)</summary>
@@ -74,7 +75,6 @@ anywhere yet.
 - The system has been validated on only one real card.
 - There is no anti-forgery beyond a NIK self-consistency check.
 - Steeply angled photos aren't detected.
-- Two cards in one photo give an arbitrary pick.
 - There is no HTTPS, monitoring, or compliance work yet.
 
 The full list is in [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md).
