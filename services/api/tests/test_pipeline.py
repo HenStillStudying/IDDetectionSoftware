@@ -124,6 +124,41 @@ def test_low_confidence_nik_skips_the_check_entirely():
     assert result.nik_consistency is None
 
 
+# --- Status must reflect a bad or missing NIK, not just average confidence ---
+
+
+class _ConfidentOcrService(OcrService):
+    """Every field read at high confidence, with a chosen NIK, so the
+    NIK is the only thing that can pull the status down."""
+
+    def __init__(self, nik):
+        self._nik = nik
+
+    def extract_fields(self, rectified_card) -> KtpFields:
+        fields = {name: FieldValue(value="X", confidence=0.97) for name in KtpFields.model_fields}
+        fields["nik"] = FieldValue(value=self._nik, confidence=0.97 if self._nik else 0.0)
+        return KtpFields(**fields)
+
+
+def test_confident_read_with_valid_nik_is_ok():
+    assert _run(_ConfidentOcrService(_MALE_NIK)).status == ExtractionStatus.OK
+
+
+def test_invalid_nik_is_never_ok():
+    # A real blurry photo read the colon after "NIK" as a leading 1: a
+    # 17-digit NIK, caught by validation, yet the status still said ok
+    # because every other field was read confidently.
+    result = _run(_ConfidentOcrService("1" + _MALE_NIK))
+    assert result.nik_validation.is_valid is False
+    assert result.status == ExtractionStatus.LOW_CONFIDENCE
+
+
+def test_missing_nik_is_never_ok():
+    result = _run(_ConfidentOcrService(None))
+    assert result.status == ExtractionStatus.LOW_CONFIDENCE
+    assert any("NIK could not be read" in w for w in result.warnings)
+
+
 # --- EXIF orientation: phone photos stored rotated, plus a tag saying how
 # to display them upright ---
 

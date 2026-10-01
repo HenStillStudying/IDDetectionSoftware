@@ -50,8 +50,8 @@ changelog.
   `:` separator is only stripped when OCR actually reads it as `:`. Misread as
   `l`, `I` or `|`, it gets "corrected" to `1` like any other digit look-alike,
   so the NIK comes out 17 digits long. NIK validation catches it ("must be 16
-  digits"), but the overall status can still be `ok`, because status reflects
-  confidence and the NIK problem is only a warning. A possible fix: when the
+  digits"), and since then the status drops to `low_confidence` too, but the
+  NIK itself is still lost. A possible fix: when the
   NIK reads as 17 digits and the first character is separated from the rest by
   a space, drop it and let validation re-check. Not done yet.
 - **The 10 MB upload limit rejects some very high-resolution photos** such as

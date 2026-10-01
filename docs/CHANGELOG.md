@@ -1211,3 +1211,19 @@ than redesigning the generator off a single sample.
     and failed validation ("must be 16 digits"). Likely cause: the `:` after
     the NIK label was read as a look-alike character, which digit
     normalization turned into `1`. Both findings are in `KNOWN_ISSUES.md`.
+- **A missing or invalid NIK now always means `low_confidence`, never `ok`.**
+  Status used to depend only on the average confidence across the detection
+  box and all fields, so the real blurry photo above, with a 17-digit NIK
+  that validation rejected, could still come back `ok` because everything
+  else was read confidently. The NIK is the field the whole result hangs off,
+  so `ok` now also requires a NIK that was read and passes validation. A NIK
+  that couldn't be read at all now adds a "NIK could not be read." warning.
+  `/demo` says "NIK missing or invalid — review before trusting" in that case
+  instead of "Low confidence extraction (92%)".
+  - Kept to the existing `low_confidence` status rather than adding a new
+    one, so API clients need no changes.
+  - Replayed the rule on the last eval report: still 30/30 `ok` on the
+    synthetic set, since every NIK there validates.
+  - Tests first (valid NIK stays `ok`; invalid and missing NIK give
+    `low_confidence`), confirmed failing with the check removed. Demo banner
+    wording checked for all four result shapes. 122 tests passing (3 new).

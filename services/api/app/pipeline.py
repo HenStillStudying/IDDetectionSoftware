@@ -123,14 +123,21 @@ class KtpExtractionPipeline:
         nik_consistency = self._check_nik_consistency(fields, nik_validation)
 
         warnings: list[str] = list(forensics_result.warnings)
-        if nik_validation is not None and not nik_validation.is_valid:
+        if nik_validation is None:
+            warnings.append("NIK could not be read.")
+        elif not nik_validation.is_valid:
             warnings.extend(f"NIK: {err}" for err in nik_validation.errors)
         if nik_consistency is not None and not nik_consistency.consistent:
             warnings.extend(f"NIK consistency: {m}" for m in nik_consistency.mismatches)
 
+        # The NIK is the field everything else hangs off, so a result
+        # without a valid one is never "ok", however confidently the rest
+        # was read. (A real blurry photo once produced a 17-digit NIK that
+        # validation caught while the status still said ok.)
+        nik_usable = nik_validation is not None and nik_validation.is_valid
         status = (
             ExtractionStatus.LOW_CONFIDENCE
-            if overall_confidence < LOW_CONFIDENCE_THRESHOLD
+            if overall_confidence < LOW_CONFIDENCE_THRESHOLD or not nik_usable
             else ExtractionStatus.OK
         )
 

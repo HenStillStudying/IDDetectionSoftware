@@ -261,9 +261,13 @@ function render(data, httpStatus) {
   }
 
   const bannerClass = data.status === 'ok' ? 'ok' : 'warn';
+  const pct = `${(data.overall_confidence * 100).toFixed(0)}%`;
+  const nikBad = !data.nik_validation || !data.nik_validation.is_valid;
   const bannerText = data.status === 'ok'
-    ? `Extraction complete — overall confidence ${(data.overall_confidence * 100).toFixed(0)}%`
-    : `Low confidence extraction (${(data.overall_confidence * 100).toFixed(0)}%) — review before trusting`;
+    ? `Extraction complete — overall confidence ${pct}`
+    : nikBad
+    ? `NIK missing or invalid — review before trusting (overall confidence ${pct})`
+    : `Low confidence extraction (${pct}) — review before trusting`;
 
   let rows = '';
   for (const [key, label] of Object.entries(FIELD_LABELS)) {
