@@ -60,6 +60,18 @@ def test_demo_page_is_served(client):
     assert b"<title>KTP Identification" in resp.content
 
 
+def test_demo_page_can_send_an_api_key(client):
+    # The page used to have no way to send X-API-Key, so with auth enabled
+    # every upload from it got a 401. Static check only; the behavior was
+    # verified by driving the page's script against a live server.
+    page = client.get("/demo").text
+    assert 'id="apiKeyInput"' in page
+    assert "'X-API-Key'" in page
+    # A secret: kept in the input only, never persisted in the browser.
+    assert "localStorage.setItem" not in page
+    assert "sessionStorage.setItem" not in page
+
+
 def test_extract_with_stub_pipeline_returns_low_confidence(client):
     resp = client.post(
         "/v1/ktp/extract",

@@ -98,6 +98,19 @@
   td.missing { color: var(--muted); font-style: italic; font-weight: 400; }
   .conf { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
 
+  .apikey { margin-bottom: 16px; font-size: 13px; color: var(--muted); }
+  .apikey label { display: block; margin-bottom: 4px; }
+  .apikey input {
+    font: inherit;
+    width: 100%;
+    max-width: 360px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card-bg);
+    color: var(--text);
+  }
+
   .meta { display: flex; gap: 20px; margin-top: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
   .meta b { color: var(--text); }
 </style>
@@ -106,6 +119,11 @@
 <div class="wrap">
   <h1>KTP Identification — Demo</h1>
   <p class="subtitle">Upload a photo of an Indonesian KTP card to run it through detection + OCR extraction.</p>
+
+  <div class="apikey">
+    <label for="apiKeyInput">API key (only needed if this server requires one)</label>
+    <input type="password" id="apiKeyInput" autocomplete="off" spellcheck="false" />
+  </div>
 
   <div class="dropzone" id="dropzone">
     <div class="icon">📇</div>
@@ -137,6 +155,9 @@ const statusEl = document.getElementById('status');
 const resultEl = document.getElementById('result');
 const submitBtn = document.getElementById('submitBtn');
 const resetBtn = document.getElementById('resetBtn');
+// The key stays in this input only — deliberately not saved to
+// localStorage/sessionStorage, where any script on the page could read it.
+const apiKeyInput = document.getElementById('apiKeyInput');
 
 let selectedFile = null;
 
@@ -189,7 +210,9 @@ submitBtn.addEventListener('click', async () => {
   form.append('file', selectedFile);
 
   try {
-    const resp = await fetch('/v1/ktp/extract', { method: 'POST', body: form });
+    const apiKey = apiKeyInput.value.trim();
+    const headers = apiKey ? { 'X-API-Key': apiKey } : {};
+    const resp = await fetch('/v1/ktp/extract', { method: 'POST', body: form, headers });
     const data = await resp.json();
     // Error responses (413 too large, 401 auth, 429 rate limit, 503/504 OCR
     // unavailable) carry {"detail": ...} or {"error": ...} and no `status`
@@ -198,14 +221,14 @@ submitBtn.addEventListener('click', async () => {
     if (!resp.ok && !data.status) {
       showError(resp.status === 413
         ? 'This photo is too large (maximum 10 MB). Try a smaller or more compressed photo.'
+        : resp.status === 401
+        ? (apiKey ? 'That API key was rejected.' : 'This server requires an API key. Enter it above.')
         : (data.detail || data.error || `Request failed (HTTP ${resp.status}).`));
       return;
     }
     render(data, resp.status);
   } catch (err) {
-    statusEl.innerHTML = '';
-    resultEl.style.display = 'block';
-    resultEl.innerHTML = `<div class="banner err">Request failed: ${err}</div>`;
+    showError(`Request failed: ${err}`);
   } finally {
     submitBtn.disabled = false;
     statusEl.innerHTML = '';

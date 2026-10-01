@@ -50,8 +50,8 @@ changelog.
 
 - **One shared API key** (`KTP_API_KEY`). There are no per-client keys, no
   rotation, and no audit log.
-- **`/demo` can't send an API key**, so it only works with auth turned off.
-  Don't expose it publicly.
+- **`/demo` sends the API key over whatever connection it's opened on.** With no
+  HTTPS yet, only use it locally or through an SSH tunnel.
 - **The compliance work is scoped but not built.** This covers consent,
   per-user auth and audit trail, retention, data-subject rights, and a DPIA
   under UU PDP. See

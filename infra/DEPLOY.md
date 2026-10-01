@@ -214,9 +214,11 @@ curl.exe -X POST http://127.0.0.1:8000/v1/ktp/extract -F "file=@training/sample_
 curl.exe -m 5 http://YOUR_VPS_IP:8000/health                                                 # must FAIL (not public)
 ```
 
-> **`/demo` doesn't work on a server.** The demo page doesn't send an
-> `X-API-Key` header, so with `KTP_API_KEY` set every upload from it gets a
-> 401. Use `curl` as above.
+> **`/demo` over the tunnel:** open `http://127.0.0.1:8000/demo` while the
+> SSH tunnel is up and enter your `KTP_API_KEY` in the page's API key field.
+> The page keeps the key in the field only and never stores it. Until HTTPS
+> exists, use the demo only through the tunnel: over plain HTTP the key
+> crosses the network unencrypted.
 
 ## 9. Day-to-day operations
 
@@ -258,4 +260,3 @@ together with HTTPS, not before it.
   (trusted proxy headers) as part of the HTTPS step, not after.
 - **Monitoring/alerting**: nothing watches the server yet beyond Docker's
   own restarts.
-- **`/demo` with auth**: the page can't send an API key (see step 8).

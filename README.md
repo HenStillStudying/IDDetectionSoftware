@@ -54,7 +54,7 @@ anywhere yet.
 | | |
 |---|---|
 | Memory | ~0.6 GB idle, ~1.3 GB under load |
-| Tests | 118 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
+| Tests | 119 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
 
 <details>
 <summary>Per-field accuracy (30 synthetic cards)</summary>
@@ -91,8 +91,8 @@ docker compose up --build
 curl -F "file=@training/sample_ktp.png" http://127.0.0.1:8000/v1/ktp/extract
 ```
 
-Or open `http://127.0.0.1:8000/demo` in a browser. The demo only works with
-`KTP_API_KEY` unset.
+Or open `http://127.0.0.1:8000/demo` in a browser. If `KTP_API_KEY` is set,
+enter it in the page's API key field.
 
 ## API at a glance
 

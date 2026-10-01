@@ -1180,3 +1180,20 @@ than redesigning the generator off a single sample.
     Each fix sabotaged and confirmed failing. The detector tests need
     ultralytics, so CI now collects `services/detection/tests` but skips them.
     118 tests passing (6 new).
+- **`/demo` can now send an API key.** The page had no way to send
+  `X-API-Key`, so with `KTP_API_KEY` set every upload from it got a 401 and
+  the demo only worked with auth turned off. It now has a password-type API
+  key field (only sent when filled in). The key lives in that input only and
+  is deliberately not saved to localStorage or sessionStorage, where any
+  script on the page could read it. A 401 now says whether a key is missing
+  or was rejected, instead of showing the raw error. Also routed the page's
+  network-failure message through the same `textContent`-based error banner
+  as the other errors, instead of `innerHTML`.
+  - Verified by running the page's own script (with a minimal fake DOM)
+    against the live Docker stack with a key set: no key → "requires an API
+    key", wrong key → "rejected", right key (with stray spaces) → normal
+    extraction, 16/17 fields on the sample. With auth off, an empty field
+    still works as before.
+  - `infra/DEPLOY.md` now says to use `/demo` through the SSH tunnel and
+    enter the key there. Until HTTPS exists the key would otherwise cross the
+    network in plain HTTP. 119 tests passing (1 new).
