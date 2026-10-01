@@ -42,7 +42,18 @@ changelog.
   synthetic KTP + look-alike scenes, the detector gave one look-alike a 0.78
   box, which is enough to refuse that photo. That is the safe direction to
   fail, and the message tells the user to photograph one card at a time.
-  Untested with real second cards (a SIM or bank card lying next to a KTP).
+- **A blurry second card can go unnoticed.** With a real KTP and SIM farther
+  apart and both out of focus, the detector never boxed the SIM and read the
+  KTP normally. Harmless when the other card isn't a KTP, but if it were a
+  second KTP this would be the old silent pick again.
+- **On blurry photos, the colon after "NIK" can be read as a leading `1`.** The
+  `:` separator is only stripped when OCR actually reads it as `:`. Misread as
+  `l`, `I` or `|`, it gets "corrected" to `1` like any other digit look-alike,
+  so the NIK comes out 17 digits long. NIK validation catches it ("must be 16
+  digits"), but the overall status can still be `ok`, because status reflects
+  confidence and the NIK problem is only a warning. A possible fix: when the
+  NIK reads as 17 digits and the first character is separated from the rest by
+  a space, drop it and let validation re-check. Not done yet.
 - **The 10 MB upload limit rejects some very high-resolution photos** such as
   full-size shots from high-megapixel phone modes. Those get a 413.
 

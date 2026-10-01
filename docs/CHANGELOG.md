@@ -1197,3 +1197,17 @@ than redesigning the generator off a single sample.
   - `infra/DEPLOY.md` now says to use `/demo` through the SSH tunnel and
     enter the key there. Until HTTPS exists the key would otherwise cross the
     network in plain HTTP. 119 tests passing (1 new).
+- **Real second-card test (KTP + SIM), through `/demo`: two findings recorded,
+  not fixed.** Two real photos, handled under the local-only real-card
+  protocol (uploaded straight from the browser, nothing saved):
+  - **Cards touching, close together:** refused with
+    `multiple_cards_detected`, as intended. The detector kept two separate
+    boxes rather than merging them, and the overlap rule didn't collapse them
+    into one card.
+  - **Cards farther apart, both out of focus:** the SIM was never detected,
+    so the KTP was read normally. Harmless here (only one ID in view), but it
+    shows a blurry second card can slip past the refusal.
+  - **In the same blurry photo, the NIK came back with an extra leading `1`**
+    and failed validation ("must be 16 digits"). Likely cause: the `:` after
+    the NIK label was read as a look-alike character, which digit
+    normalization turned into `1`. Both findings are in `KNOWN_ISSUES.md`.
