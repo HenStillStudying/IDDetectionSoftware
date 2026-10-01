@@ -1227,3 +1227,22 @@ than redesigning the generator off a single sample.
   - Tests first (valid NIK stays `ok`; invalid and missing NIK give
     `low_confidence`), confirmed failing with the check removed. Demo banner
     wording checked for all four result shapes. 122 tests passing (3 new).
+- **Fixed: the colon after "NIK" read as a leading `1`.** From the real
+  blurry-photo test above. With the `:` misread as a look-alike (`l`, `I`,
+  `|`…), the line has no colon left to split on, so the merged
+  label+value handler returned `l 3205…`, and digit normalization turned the
+  `l` into a `1`: a 17-digit NIK. The NIK now goes through a new `parse_nik`
+  in the OCR service: when the digits come out exactly one too long *and*
+  the first character stands alone before a 16-digit run, that character is
+  dropped. Every other wrong length is left as read, for validation to
+  reject. Glued-on misreads (`l3205…`) are deliberately not repaired, since
+  they can't be told apart from a real extra digit; that stays in
+  `KNOWN_ISSUES.md`.
+  - Tests cover seven look-alike characters, the exact merged-label path
+    (`NIK l 3205…`), and that 15-, 17-without-gap and 18-digit reads are left
+    alone. They fail with the repair disabled.
+  - **Not confirmed against the original photo**, which was never saved (by
+    design), so this matches the reported symptom (extra leading digit,
+    "must be 16 digits") rather than a replay. No change to the synthetic
+    eval by construction: its NIKs all read as 16 digits, and the repair
+    only ever touches 17. 126 tests passing (4 new).

@@ -2,10 +2,12 @@ from ktp_ocr.parsing import (
     find_berlaku_hingga,
     normalize_digit_lookalikes,
     only_digits,
+    parse_nik,
     split_jenis_kelamin_gol_darah,
     split_rt_rw_kelurahan,
     split_tempat_tanggal_lahir,
 )
+from ktp_ocr.field_labels import merged_label_prefix_value
 from ktp_ocr.text_lines import TextLine
 
 CARD_SIZE = (640, 400)
@@ -128,3 +130,34 @@ def test_split_rt_rw_kelurahan_when_ocr_drops_the_slash():
     # OCR sometimes reads "Kel/Desa" as "KELDESA" with no separator at all,
     # leaving no word boundary after "kel" for a \bkel\b match to find.
     assert split_rt_rw_kelurahan("007/005 KELDESA: CIMAHI") == ("007/005", "CIMAHI")
+
+
+# --- NIK: a misread colon must not become a leading digit ---
+_NIK = "9205031303070001"
+
+
+def test_parse_nik_plain():
+    assert parse_nik(_NIK) == _NIK
+
+
+def test_parse_nik_drops_colon_misread_as_a_separate_leading_character():
+    # A real blurry photo: the ":" after "NIK" came back as a look-alike
+    # letter, which digit normalization then turned into a leading 1,
+    # giving a 17-digit NIK.
+    for misread in ("l", "I", "i", "|", "1", "!", ";"):
+        assert parse_nik(f"{misread} {_NIK}") == _NIK, misread
+
+
+def test_parse_nik_through_the_merged_label_path():
+    # With no ":" left on the line, it's the merged label+value handler that
+    # hands parse_nik the stray character.
+    line = TextLine(text=f"NIK l {_NIK}", confidence=0.9, x1=0, y1=0, x2=300, y2=15)
+    assert parse_nik(merged_label_prefix_value(line, ["NIK"])) == _NIK
+
+
+def test_parse_nik_leaves_other_wrong_lengths_alone():
+    # Only the specific "one stray separator in front of 16 digits" shape is
+    # repaired; anything else stays as read, for validation to reject.
+    assert parse_nik(f"1{_NIK}") == "1" + _NIK  # no gap: can't tell it's a separator
+    assert parse_nik(f"l {_NIK}5") == "1" + _NIK + "5"  # 18 digits
+    assert parse_nik(_NIK[:-1]) == _NIK[:-1]  # 15 digits

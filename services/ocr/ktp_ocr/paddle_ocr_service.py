@@ -34,7 +34,7 @@ from .parsing import (
     find_kota_kabupaten,
     find_provinsi,
     normalize_digit_lookalikes,
-    only_digits,
+    parse_nik,
     snap_to_enum,
     split_jenis_kelamin_gol_darah,
     split_rt_rw_kelurahan,
@@ -203,7 +203,7 @@ class PaddleOcrService(OcrService):
             rt_rw = normalize_digit_lookalikes(rt_rw)
 
         return KtpFields(
-            nik=_field(only_digits(nik_raw) if nik_raw else None, nik_conf),
+            nik=_field(parse_nik(nik_raw) if nik_raw else None, nik_conf),
             nama=_field(nama_raw, nama_conf),
             tempat_lahir=_field(tempat_lahir, ttl_conf),
             tanggal_lahir=_field(tanggal_lahir, ttl_conf),

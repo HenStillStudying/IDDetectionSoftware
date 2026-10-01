@@ -54,7 +54,7 @@ anywhere yet.
 | | |
 |---|---|
 | Memory | ~0.6 GB idle, ~1.3 GB under load |
-| Tests | 122 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
+| Tests | 126 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
 
 <details>
 <summary>Per-field accuracy (30 synthetic cards)</summary>

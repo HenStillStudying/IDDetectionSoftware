@@ -44,6 +44,29 @@ def only_digits(text: str) -> str:
     return re.sub(r"\D", "", normalize_digit_lookalikes(text))
 
 
+NIK_LENGTH = 16
+
+
+def parse_nik(raw: str) -> str:
+    """The NIK's digits, with one specific misread repaired: the ":" after
+    the "NIK" label read as a look-alike character (l, I, |, ...) standing
+    on its own in front of the number. Digit normalization would turn that
+    into a leading 1 and a 17-digit NIK — seen on a real, blurry photo.
+
+    Only repaired when the stray character is separated from the rest by
+    whitespace and the rest is exactly 16 digits; any other wrong length is
+    returned as read, for NIK validation to reject.
+    """
+    digits = only_digits(raw)
+    if len(digits) != NIK_LENGTH + 1:
+        return digits
+    first, _, rest = raw.strip().partition(" ")
+    rest_digits = only_digits(rest)
+    if len(first) == 1 and len(rest_digits) == NIK_LENGTH:
+        return rest_digits
+    return digits
+
+
 _TTL_SEPARATOR = re.compile(r"[,.]\s*(?=\d{1,2}[-\s]?\d{1,2}[-\s]?\d{4})")
 
 
