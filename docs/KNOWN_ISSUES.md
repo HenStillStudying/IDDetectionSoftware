@@ -14,8 +14,11 @@ changelog.
 - **NIK consistency catches only careless fakes.** It checks that the birth date
   and gender encoded in the NIK match the printed ones. Anyone who knows the NIK
   format can make a fake agree with itself. A pass on gender alone is a coin
-  flip. It is also **still unverified on a genuine card**: it has only been
-  exercised on synthetic data.
+  flip. On 29 consented real inputs it passed on 8 genuine cards and flagged
+  1. That one disagreed on day, month and year at once, with both fields read
+  at ~1.0 confidence, which doesn't look like an OCR slip. Unexplained until
+  the card itself is checked. It was also skipped on 7 of the 16 cards read,
+  because the NIK was invalid or the birth date wasn't read confidently.
 - **Forensics is EXIF-only.** It only reports that a photo has no EXIF data,
   which is common and innocent. Error-level analysis (ELA) was built,
   evaluated, and shelved because it flagged the genuine real card as
@@ -26,10 +29,22 @@ changelog.
 
 ## Accuracy & coverage
 
-- **Validated against one real card.** The detector is trained on synthetic data
-  only (mAP50 0.995 is a synthetic number). The real card's best result was
-  17/17 fields, but one card is not a benchmark. Glare, occlusion, worn cards,
-  and older layouts are untested.
+- **The detector misses almost half of real cards.** On 29 consented real inputs
+  (23 photos and 6 PDF pages), it found a card in only **16 (55%)**: 14/23 photos
+  and 3/6 PDF pages. It is trained on synthetic data only, and that gap shows:
+  - Detection confidence on real cards is 0.53–0.89, against ~0.96 on synthetic
+    ones.
+  - Most misses still got a weak box (0.07–0.38) covering 70–90% of the image,
+    which suggests close-up or tightly cropped cards that fill the frame, a
+    layout the synthetic scenes rarely show.
+  - 4 got no box at all.
+
+  Not yet confirmed by inspecting the misses.
+- **NIKs on real cards are often wrong or missing.** Of the 16 real cards read,
+  10 NIKs were valid, 4 had the wrong length, and 2 weren't read. The weaker
+  fields there were `tanggal_lahir` (12/16 read), `provinsi` (12/16),
+  `kota_kabupaten` (11/16) and `golongan_darah` (8/16). Field values weren't
+  compared against ground truth, so these are read rates, not accuracy.
 - **Free-text fields are the weak spot.** On synthetic data: `alamat` 16/30,
   `kota_kabupaten` 24/30, `nama`, `kewarganegaraan` and `berlaku_hingga` 25/30.
   Most failures are single-character OCR noise from the fast `PP-OCRv6_small`

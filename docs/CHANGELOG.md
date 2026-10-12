@@ -1246,3 +1246,36 @@ than redesigning the generator off a single sample.
     "must be 16 digits") rather than a replay. No change to the synthetic
     eval by construction: its NIKs all read as 16 digits, and the repair
     only ever touches 17. 126 tests passing (4 new).
+- **First multi-card real-world evaluation: 29 consented real inputs.** This
+  is the first test on real cards beyond the developer's own (23 photos and 5
+  PDFs, the PDFs giving 6 pages). It ran through the full Docker stack with the
+  current code.
+  - **Privacy handling.** The photos were kept in a local folder outside the
+    synced repo. Scripts sent them only to the API at 127.0.0.1 and printed
+    aggregates only: no field values, NIKs or filenames, and digits stripped
+    from error text. PDF pages were rendered in memory, and nothing was
+    written to disk.
+  - **Card detected: 16/29 (55%).** Photos 14/23, PDF pages 3/6. Status:
+    `ok` 10, `low_confidence` 6, `no_card_detected` 13.
+  - **Why detection fails, from aggregate diagnostics** (no images
+    inspected). Real-card detection confidence was 0.53–0.89, against ~0.96
+    on synthetic cards. Most misses scored 0.07–0.38, with the best box
+    covering 70–90% of the image, which suggests close-up or cropped cards.
+    4 got no box at all, even at a 0.05 threshold.
+  - **NIK (16 cards read):** 10 valid, 4 wrong length, 2 not read.
+  - **NIK consistency on genuine cards, the first evidence:** 8 consistent,
+    1 mismatch, 7 not checked. The mismatch differed in day, month and year
+    at once, with both fields read at ~1.0 confidence, so not a one-digit
+    misread. It may be a date taken from the wrong place on the card, or a
+    card that really doesn't agree with itself. Unresolved until the card's
+    owner checks it.
+  - **Field read rates (16 cards read):** most fields 15/16. Lower:
+    `tanggal_lahir` 12, `provinsi` 12, `kota_kabupaten` 11,
+    `golongan_darah` 8. There was no ground truth, so these are read rates,
+    not accuracy. Median latency was 0.5 s.
+  - The first run hit the API's own 15/minute rate limit (15 requests got
+    429), so the eval script now paces its requests.
+  - Results are in `KNOWN_ISSUES.md`. Nothing fixed yet. The next step is to
+    look at the missed cards to confirm the cause, then most likely add
+    close-up and scan-like scenes to the synthetic generator and retrain,
+    keeping the real inputs as a held-out test set.
