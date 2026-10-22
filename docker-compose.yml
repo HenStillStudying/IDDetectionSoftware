@@ -94,10 +94,10 @@ services:
 
   worker:
     <<: *service-defaults
+    # The api's own image, built once by the api service. Its own build:
+    # section made compose export the same image twice, minutes each.
     image: ktp-api:local
-    build:
-      context: .
-      dockerfile: services/api/Dockerfile
+    pull_policy: never
     command: ["arq", "app.worker.WorkerSettings"]
     environment:
       KTP_DETECTION_WEIGHTS: /app/weights/best.pt

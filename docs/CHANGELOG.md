@@ -1307,3 +1307,19 @@ than redesigning the generator off a single sample.
   - Live re-run on the 28 real inputs: the falsely flagged card is now
     `low_confidence` (`ok` 9, `low_confidence` 7), and no other card's status
     changed.
+- **The "hung" Docker build was a slow cold rebuild.** An api rebuild sat
+  silent for over 10 minutes twice and was killed as a hang.
+  - Run with `--progress=plain`, it finished in 15.5 min. PyTorch and the
+    other dependencies were being downloaded again at ~1 MB/s, although
+    their Dockerfile lines hadn't changed.
+  - Cause: build cache at 21.4 GB against Docker Desktop's 20 GB
+    `defaultKeepStorage`. BuildKit evicts least recently used entries
+    first, and the api image's dependency layers were the oldest.
+  - Fixed: `worker` now reuses the api image (`pull_policy: never`)
+    instead of declaring the same build, which made compose export the
+    image twice (4 min per export on a cold build). Verified: one export,
+    the stack starts healthy, and a rebuild with warm cache takes 12 s.
+  - Documented in `DEVELOPMENT.md`. Not fixed: the cache is still near the
+    limit, and C: has only ~17 GB free, so raising the limit isn't an
+    option on this machine. Pruning entries unused for 2 weeks freed only
+    80 MB.

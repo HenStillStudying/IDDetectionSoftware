@@ -177,6 +177,18 @@ docker compose up --build
   with every dependency layer and the model conversion reused from cache.
   The reorder didn't change what's installed — `pip freeze` is identical
   to before in both images (67 and 81 packages), and `pip check` is clean.
+- **A cold rebuild is slow, not hung.** BuildKit evicts the least recently
+  used cache once it passes Docker Desktop's `defaultKeepStorage` (20 GB
+  by default), and the api image, rebuilt less often than ocr, loses its
+  dependency layers first. Its rebuild then re-downloads everything:
+  measured at 15.5 min on a ~1 MB/s link (PyTorch 4.7 min, the other
+  dependencies 6.2 min, exporting the image 4 min), with no output under
+  compose's default progress display. Use `--progress=plain` to see it
+  moving, and don't kill it. `docker system df` shows how close the cache
+  is to the limit.
+- `worker` reuses the image `api` builds (`pull_policy: never`, no
+  `build:` of its own). With its own `build:` section, compose exported
+  the same image twice, which cost minutes on a cold build.
 - **Survives crashes and reboots**: every service has
   `restart: unless-stopped` (only an explicit `docker compose stop`/`down`
   keeps it down). Tested, not assumed: killing the api container's main
