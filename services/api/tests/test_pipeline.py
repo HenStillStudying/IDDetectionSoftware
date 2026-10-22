@@ -131,12 +131,16 @@ class _ConfidentOcrService(OcrService):
     """Every field read at high confidence, with a chosen NIK, so the
     NIK is the only thing that can pull the status down."""
 
-    def __init__(self, nik):
+    def __init__(self, nik, tanggal_lahir="X", jenis_kelamin="X"):
         self._nik = nik
+        self._date = tanggal_lahir
+        self._gender = jenis_kelamin
 
     def extract_fields(self, rectified_card) -> KtpFields:
         fields = {name: FieldValue(value="X", confidence=0.97) for name in KtpFields.model_fields}
         fields["nik"] = FieldValue(value=self._nik, confidence=0.97 if self._nik else 0.0)
+        fields["tanggal_lahir"] = FieldValue(value=self._date, confidence=0.97)
+        fields["jenis_kelamin"] = FieldValue(value=self._gender, confidence=0.97)
         return KtpFields(**fields)
 
 
@@ -157,6 +161,21 @@ def test_missing_nik_is_never_ok():
     result = _run(_ConfidentOcrService(None))
     assert result.status == ExtractionStatus.LOW_CONFIDENCE
     assert any("NIK could not be read" in w for w in result.warnings)
+
+
+def test_consistency_mismatch_is_never_ok():
+    # A genuine real card came back ok with a mismatch: OCR had misread the
+    # NIK or the birth date at ~1.0 confidence. If they disagree, at least
+    # one of them is wrong, misread or fake, so the result can't be ok.
+    result = _run(_ConfidentOcrService(_MALE_NIK, "11-12-1989", "LAKI-LAKI"))
+    assert result.nik_consistency.consistent is False
+    assert result.status == ExtractionStatus.LOW_CONFIDENCE
+
+
+def test_consistent_confident_read_is_ok():
+    result = _run(_ConfidentOcrService(_MALE_NIK, "15-07-1990", "LAKI-LAKI"))
+    assert result.nik_consistency.consistent is True
+    assert result.status == ExtractionStatus.OK
 
 
 # --- EXIF orientation: phone photos stored rotated, plus a tag saying how

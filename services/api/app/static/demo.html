@@ -263,10 +263,13 @@ function render(data, httpStatus) {
   const bannerClass = data.status === 'ok' ? 'ok' : 'warn';
   const pct = `${(data.overall_confidence * 100).toFixed(0)}%`;
   const nikBad = !data.nik_validation || !data.nik_validation.is_valid;
+  const nikContradicts = data.nik_consistency && !data.nik_consistency.consistent;
   const bannerText = data.status === 'ok'
     ? `Extraction complete — overall confidence ${pct}`
     : nikBad
     ? `NIK missing or invalid — review before trusting (overall confidence ${pct})`
+    : nikContradicts
+    ? `NIK disagrees with the printed birth date or gender — a misread or a fake; review before trusting`
     : `Low confidence extraction (${pct}) — review before trusting`;
 
   let rows = '';

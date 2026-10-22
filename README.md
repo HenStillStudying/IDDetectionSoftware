@@ -39,7 +39,7 @@ anywhere yet.
 |---|---|
 | Detection | 30/30 synthetic cards; detector mAP50 0.995 (synthetic data) |
 | Field accuracy | **458/510 (89.8%)** on 30 synthetic cards; **NIK 30/30** |
-| Real cards | 29 consented real inputs: **card detected in 16 (55%)**, NIK valid on 10 of the 16 read, NIK consistency passed on 8 genuine cards. Best single card: 17/17 fields. A real SIM was correctly rejected. |
+| Real cards | 28 consented real KTP inputs: **card detected in 16 (57%)**, NIK valid on 10 of the 16 read. NIK consistency passed on 8 genuine cards and flagged 1 that turned out to be an OCR misread. Best single card: 17/17 fields. A real SIM and a non-KTP document were correctly rejected. |
 | Latency | ~1.2–1.6 s per request on CPU (Docker, ONNX); the first request after startup is slower |
 
 **Robustness**
@@ -54,7 +54,7 @@ anywhere yet.
 | | |
 |---|---|
 | Memory | ~0.6 GB idle, ~1.3 GB under load |
-| Tests | 126 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
+| Tests | 128 tests. CI (GitHub Actions) runs them plus a compose config check on every push. Dependabot keeps dependencies current. |
 
 <details>
 <summary>Per-field accuracy (30 synthetic cards)</summary>
@@ -72,7 +72,7 @@ anywhere yet.
 
 **Biggest open gaps:**
 
-- The detector finds only about half of real cards (16/29). It is trained on synthetic data only.
+- The detector finds only about half of real cards (16/28), with bad lighting and blur behind several misses. It is trained on synthetic data only.
 - There is no anti-forgery beyond a NIK self-consistency check.
 - Steeply angled photos aren't detected.
 - There is no HTTPS, monitoring, or compliance work yet.

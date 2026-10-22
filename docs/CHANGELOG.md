@@ -1279,3 +1279,31 @@ than redesigning the generator off a single sample.
     look at the missed cards to confirm the cause, then most likely add
     close-up and scan-like scenes to the synthetic generator and retrain,
     keeping the real inputs as a held-out test set.
+- **Real-world eval follow-up: one input wasn't a KTP, and the mismatch was
+  an OCR error.** The card owner inspected the problem inputs.
+  - **One input was not a KTP** (a single-page PDF the detector had
+    rejected), so that rejection was correct, not a miss. It was removed from
+    the set and the eval re-run: **28 inputs (23 photos, 5 PDF pages), card
+    detected in 16 (57%)**, photos 14/23, PDF pages 2/5. Status: `ok` 10,
+    `low_confidence` 6, `no_card_detected` 12. NIK and field read rates are
+    unchanged. This also corrects the previous entry's "PDF pages 3/6": the
+    right figure was 2/6.
+  - **Several of the misses have bad lighting or blur**, per the owner. That
+    is a confirmed cause, alongside the close-up hint from the box sizes.
+  - **The consistency mismatch was a false alarm on a genuine card.** The
+    owner confirmed the printed birth date matches the NIK. A digit-level
+    diagnostic (booleans only, no values printed) found one digit wrong in
+    each of day, month and year. The printed date doesn't appear in any other
+    field, and isn't the NIK's date with day and month swapped. So OCR
+    misread the NIK or the birth date at ~1.0 confidence, and the result's
+    status was still `ok`.
+- **A NIK consistency mismatch is never `ok`.** Prompted by the false alarm
+  above. If the NIK and the printed birth date or gender disagree, at least
+  one is wrong, misread or fake, so the result is now `low_confidence`
+  instead of `ok` with a warning. `/demo` says why in its banner.
+  - Tests (written first; the mismatch one failed before the fix): a
+    confident read with a mismatch is `low_confidence`, and one that agrees
+    is still `ok`. 128 tests passing.
+  - Live re-run on the 28 real inputs: the falsely flagged card is now
+    `low_confidence` (`ok` 9, `low_confidence` 7), and no other card's status
+    changed.

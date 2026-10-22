@@ -135,9 +135,13 @@ class KtpExtractionPipeline:
         # was read. (A real blurry photo once produced a 17-digit NIK that
         # validation caught while the status still said ok.)
         nik_usable = nik_validation is not None and nik_validation.is_valid
+        # A mismatch means the NIK or a printed field is wrong, misread or
+        # fake. A genuine real card once came back ok with one: OCR had
+        # misread a field at ~1.0 confidence.
+        self_contradicting = nik_consistency is not None and not nik_consistency.consistent
         status = (
             ExtractionStatus.LOW_CONFIDENCE
-            if overall_confidence < LOW_CONFIDENCE_THRESHOLD or not nik_usable
+            if overall_confidence < LOW_CONFIDENCE_THRESHOLD or not nik_usable or self_contradicting
             else ExtractionStatus.OK
         )
 
