@@ -1323,3 +1323,38 @@ than redesigning the generator off a single sample.
     limit, and C: has only ~17 GB free, so raising the limit isn't an
     option on this machine. Pruning entries unused for 2 weeks freed only
     80 MB.
+- **Detector retraining experiments: nothing beat production, and runs
+  vary wildly.** Tried to fix the real-card detection gap (16/28) through
+  the synthetic generator. Every model was scored on the 28 real inputs
+  (aggregates only, never trained on), the 30-card synthetic eval set and
+  40 seeded no-KTP scenes.
+  - **Generator changes, now opt-in via `--with`:**
+    - `scale`: card size from small to a close-up running off the frame.
+      Previously the card was always 640 px on a 960 px scene.
+    - `harsh_aug`: dark and warm/cool lighting, glare, motion and focus
+      blur, sensor noise, downscaling.
+    - `backgrounds`: gradient, textured and cluttered backgrounds.
+    - `scan_pages`: a card on a white A4 page, sometimes greyscale.
+    - `--seed` makes a dataset reproducible. Defaults stay at the
+      production recipe.
+  - **Results, real cards detected out of 28:**
+
+    | Recipe | Detected |
+    |---|---|
+    | Production model | 16 |
+    | All four changes | 4 |
+    | Production recipe, retrained | 1 |
+    | `harsh_aug` only | 6 |
+    | `scale` only | 12, plus 2/40 false positives |
+    | `scale` + `harsh_aug`, three seeds | 17, 10 and 7 |
+
+    Every model scored ~0.995 mAP50 on synthetic validation and 458–459/510
+    fields on the synthetic eval set.
+  - **Conclusion:** run-to-run variance swamps any recipe effect, and
+    synthetic metrics can't separate a model that works on real photos from
+    one that doesn't. Production weights unchanged. Models also miss
+    different cards: production plus the best seed together cover 22/28.
+  - Found along the way: albumentations 2's `GaussNoise` default (std up to
+    0.44) buries the card in static. `harsh_aug` uses a realistic range;
+    the production recipe keeps the old default for reproducibility.
+  - Next: train with real photos of ID documents from a public dataset.

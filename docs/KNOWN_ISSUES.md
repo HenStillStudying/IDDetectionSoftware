@@ -45,6 +45,13 @@ changelog.
   - Most misses still got a weak box (0.07–0.38) covering 70–90% of the image,
     which also suggests close-up or tightly cropped cards that fill the frame,
     a layout the synthetic scenes rarely show. A few got no box at all.
+- **Retraining the detector is a lottery on real photos.** Retrained models
+  all score ~0.995 mAP50 on synthetic validation, yet find anywhere from 1
+  to 17 of the 28 real cards. The same recipe gave 17, 10 and 7 across
+  three seeds, and the production recipe retrained gave 1. So synthetic
+  metrics can't pick a good model, the production detector is partly a
+  lucky draw, and no generator change has yet been shown to help. Real
+  photos in training are the likely fix.
 - **NIKs on real cards are often wrong or missing.** Of the 16 real cards read,
   10 NIKs were valid, 4 had the wrong length, and 2 weren't read. The weaker
   fields there were `tanggal_lahir` (12/16 read), `provinsi` (12/16),

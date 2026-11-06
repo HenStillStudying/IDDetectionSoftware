@@ -212,6 +212,13 @@ card-shaped/text-bearing distractors, each labeled with an empty YOLO
 label — so the detector learns to reject non-KTP objects, not just detect
 KTPs (see "False-positive tested" in [CHANGELOG](CHANGELOG.md)).
 
+`--with` switches on experimental scene changes (`scale`, `harsh_aug`,
+`backgrounds`, `scan_pages`), and `--seed` makes a dataset reproducible.
+**Judge a retrained detector on real photos, never on synthetic numbers
+alone.** Every run so far scored ~0.995 mAP50 on synthetic validation,
+while real-card detection ranged from 1/28 to 17/28 between runs. Keep the
+production weights until a new model beats them on the real set.
+
 ## Test
 
 ```bash

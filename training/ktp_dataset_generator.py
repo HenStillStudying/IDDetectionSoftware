@@ -442,19 +442,115 @@ def render_distractor() -> Image.Image:
 # content-specific.
 EDGE_TO_EDGE_PROB = 0.15
 
+# The first real-world eval (28 consented real KTP inputs) found the
+# detector on only 16. Every positive scene used to show the card at one
+# fixed size (640 px wide on a 960 px frame, about a third of the image) on
+# a plain solid colour, while real inputs range from a small card on a
+# cluttered table to a close-up that fills, or runs off, the frame, and
+# PDFs are a scanned card on a white page. Misses had weak boxes covering
+# 70-90% of the image, and several were dark or blurry.
+SCAN_PAGE_PROB = 0.12
+SCAN_PAGE_W, SCAN_PAGE_H = 720, 1018  # A4 proportions
+
+# Each change can be switched on (--with) for experiments. All off is the
+# recipe the production detector was trained with. None is proven: all four
+# together found 4 of 28 real cards (production: 16), and size + harsh
+# augmentation scored 17, 10 and 7 across three seeds. Every run scored
+# ~0.995 mAP50 on synthetic validation, so only real photos tell them apart.
+FEATURES = {"backgrounds": False, "scale": False, "scan_pages": False, "harsh_aug": False}
+
+
+def _random_colour(lo=30, hi=200) -> tuple:
+    return tuple(random.randint(lo, hi) for _ in range(3))
+
+
+def _random_background(w: int, h: int) -> Image.Image:
+    """A plain, gradient, mottled or cluttered background — real photos
+    are taken on desks, fabric and tables, not flat colour."""
+    kind = random.choice(["solid", "gradient", "mottled", "clutter"]) if FEATURES["backgrounds"] else "solid"
+    if kind == "solid":
+        return Image.new("RGB", (w, h), _random_colour())
+    if kind == "gradient":
+        a, b = np.array(_random_colour()), np.array(_random_colour())
+        if random.random() < 0.5:
+            ramp = np.tile(np.linspace(0, 1, w), (h, 1))
+        else:
+            ramp = np.tile(np.linspace(0, 1, h)[:, None], (1, w))
+        return Image.fromarray((a + (b - a) * ramp[..., None]).astype(np.uint8))
+    if kind == "mottled":
+        # Low-res noise blown up: reads like wood grain, fabric or stone.
+        cells = np.random.randint(0, 256, (random.randint(4, 24), random.randint(4, 24), 3), dtype=np.uint8)
+        noise = np.array(Image.fromarray(cells).resize((w, h), Image.BICUBIC), dtype=np.float32)
+        arr = np.array(_random_colour(), dtype=np.float32) * 0.6 + noise * 0.4
+        return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    img = Image.new("RGB", (w, h), _random_colour())
+    draw = ImageDraw.Draw(img)
+    for _ in range(random.randint(3, 12)):
+        x1, y1 = random.randint(-w // 4, w), random.randint(-h // 4, h)
+        x2, y2 = x1 + random.randint(20, w // 2), y1 + random.randint(20, h // 2)
+        shape = random.choice([draw.rectangle, draw.ellipse])
+        shape([(x1, y1), (x2, y2)], fill=_random_colour(0, 255))
+    for _ in range(random.randint(0, 6)):
+        draw.line([(random.randint(0, w), random.randint(0, h)), (random.randint(0, w), random.randint(0, h))],
+                  fill=_random_colour(0, 255), width=random.randint(1, 8))
+    return img
+
+
+def _random_card_width_fraction() -> float:
+    """How much of the frame's width the card spans: from far away to a
+    close-up wider than the frame itself."""
+    r = random.random()
+    if r < 0.25:
+        return random.uniform(0.25, 0.5)
+    if r < 0.6:
+        return random.uniform(0.5, 0.8)
+    return random.uniform(0.8, 1.15)
+
+
+def _scale_to_width(img: Image.Image, width: int) -> Image.Image:
+    return img.resize((width, max(1, round(img.height * width / img.width))), Image.LANCZOS)
+
+
+def _paste_with_overhang(scene: Image.Image, subject: Image.Image, max_overhang: float) -> tuple:
+    """Pastes `subject` (RGBA) at a random spot, letting up to `max_overhang`
+    of its width/height run off any edge. Returns the visible bbox (xyxy)."""
+    sw, sh = scene.size
+    rw, rh = subject.size
+    ox, oy = int(rw * max_overhang), int(rh * max_overhang)
+    lo_x, hi_x = -ox, sw - rw + ox
+    lo_y, hi_y = -oy, sh - rh + oy
+    px = random.randint(min(lo_x, hi_x), max(lo_x, hi_x))
+    py = random.randint(min(lo_y, hi_y), max(lo_y, hi_y))
+    scene.paste(subject, (px, py), mask=subject)
+    return max(0, px), max(0, py), min(sw, px + rw), min(sh, py + rh)
+
+
+def _compose_scan_page(subject: Image.Image) -> tuple[Image.Image, tuple]:
+    """A card scanned or photocopied onto a white portrait page, as in a
+    PDF: small on the page, near-straight, sometimes greyscale."""
+    page = Image.new("RGB", (SCAN_PAGE_W, SCAN_PAGE_H), tuple([random.randint(232, 255)] * 3))
+    card = _scale_to_width(subject.convert("RGBA"), int(SCAN_PAGE_W * random.uniform(0.3, 0.7)))
+    card = card.rotate(random.uniform(-4, 4), expand=True)
+    bbox = _paste_with_overhang(page, card, max_overhang=0.0)
+    if random.random() < 0.4:
+        page = page.convert("L").convert("RGB")  # photocopy
+    return page, bbox
+
 
 def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
     """
     Places the KTP card onto a random background scene.
     Returns (scene_image, bbox_xyxy) where bbox is the card's position.
     """
-    if random.random() < EDGE_TO_EDGE_PROB:
+    r = random.random()
+    if r < EDGE_TO_EDGE_PROB:
         return _compose_edge_to_edge(ktp_img)
+    if FEATURES["scan_pages"] and r < EDGE_TO_EDGE_PROB + SCAN_PAGE_PROB:
+        return _compose_scan_page(ktp_img)
 
-    scene = Image.new("RGB", (IMG_W, IMG_H),
-                      color=(random.randint(30,200),
-                             random.randint(30,200),
-                             random.randint(30,200)))
+    scene = _random_background(IMG_W, IMG_H)
+    fraction = _random_card_width_fraction() if FEATURES["scale"] else KTP_W / IMG_W
+    ktp_img = _scale_to_width(ktp_img, int(IMG_W * fraction))
 
     # Random slight rotation of card (-15 to +15 deg). Rotating in RGBA and
     # pasting with the alpha channel as a mask means only the tilted card's
@@ -467,19 +563,10 @@ def compose_scene(ktp_img: Image.Image) -> tuple[Image.Image, tuple]:
     angle   = random.uniform(-15, 15)
     rotated = ktp_img.convert("RGBA").rotate(angle, expand=True)
 
-    rw, rh = rotated.size
-    # Random position: card stays mostly inside scene
-    max_x = max(0, IMG_W - rw)
-    max_y = max(0, IMG_H - rh)
-    px    = random.randint(0, max(0, max_x))
-    py    = random.randint(0, max(0, max_y))
-
-    scene.paste(rotated, (px, py), mask=rotated)
-
-    # Bounding box of the card in scene coordinates (xyxy)
-    x1, y1 = px, py
-    x2, y2 = min(px + rw, IMG_W), min(py + rh, IMG_H)
-    return scene, (x1, y1, x2, y2)
+    # Close-ups may run a little off the frame, as a hand-held phone
+    # photo often does; the label is the visible part.
+    overhang = 0.08 if fraction > 0.8 else 0.0
+    return scene, _paste_with_overhang(scene, rotated, overhang)
 
 
 def _compose_edge_to_edge(subject: Image.Image) -> tuple[Image.Image, tuple]:
@@ -523,13 +610,14 @@ def compose_negative_scene() -> Image.Image:
     writes an empty YOLO label file for these, the standard way to teach a
     detector what a true negative looks like.
     """
-    scene = Image.new("RGB", (IMG_W, IMG_H),
-                      color=(random.randint(30, 200),
-                             random.randint(30, 200),
-                             random.randint(30, 200)))
+    if FEATURES["scan_pages"] and random.random() < SCAN_PAGE_PROB:
+        # A scanned page with some other document on it, not a KTP.
+        return _compose_scan_page(render_distractor())[0]
+
+    scene = _random_background(IMG_W, IMG_H)
 
     if random.random() < 0.25:
-        return scene  # plain background, nothing placed on it
+        return scene  # background only, nothing placed on it
 
     distractor = render_distractor()
 
@@ -559,27 +647,47 @@ def xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h) -> str:
 
 # ─── Augmentation Pipeline ────────────────────────────────────────────────────
 
-augment = A.Compose([
-    A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.7),
-    A.GaussianBlur(blur_limit=(3, 5), p=0.4),
-    A.GaussNoise(p=0.3),
-    A.RandomShadow(p=0.3),
-    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=0.4),
-    A.Perspective(scale=(0.02, 0.06), p=0.5),
-    A.ImageCompression(quality_range=(60, 95), p=0.4),
-], bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"],
-                             clip=True, min_visibility=0.3))
+# Real misses included dark, unevenly lit and blurry photos, harsher than
+# the old mild brightness and 3-5 px blur: these cover dim rooms, warm or
+# cool lamps, glare, hand shake, missed focus and low-light sensor noise.
+def _photometric() -> list:
+    if not FEATURES["harsh_aug"]:
+        return [
+            A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.7),
+            A.GaussianBlur(blur_limit=(3, 5), p=0.4),
+            A.GaussNoise(p=0.3),
+            A.RandomShadow(p=0.3),
+            A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=0.4),
+            A.ImageCompression(quality_range=(60, 95), p=0.4),
+        ]
+    return [
+        A.RandomBrightnessContrast(brightness_limit=(-0.5, 0.3), contrast_limit=0.4, p=0.7),
+        A.RandomGamma(gamma_limit=(60, 160), p=0.3),
+        A.PlanckianJitter(p=0.3),
+        A.RandomShadow(p=0.3),
+        A.RandomSunFlare(src_radius=120, num_flare_circles_range=(1, 3), p=0.08),
+        A.OneOf([
+            A.GaussianBlur(blur_limit=(3, 9)),
+            A.MotionBlur(blur_limit=(3, 13)),
+            A.Defocus(radius=(2, 5)),
+        ], p=0.5),
+        # GaussNoise's albumentations-2 default (std up to 0.44) buries the
+        # card in static, far beyond any real phone sensor.
+        A.OneOf([A.GaussNoise(std_range=(0.02, 0.1)), A.ISONoise()], p=0.3),
+        A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=0.4),
+        A.Downscale(scale_range=(0.35, 0.8), p=0.15),
+        A.ImageCompression(quality_range=(40, 95), p=0.4),
+    ]
 
-# Same transforms, without bbox_params — negatives have no object of
-# interest for Albumentations to track.
-augment_negative = A.Compose([
-    A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.7),
-    A.GaussianBlur(blur_limit=(3, 5), p=0.4),
-    A.GaussNoise(p=0.3),
-    A.RandomShadow(p=0.3),
-    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=20, p=0.4),
-    A.ImageCompression(quality_range=(60, 95), p=0.4),
-])
+
+def _build_augmenters() -> tuple:
+    augment = A.Compose(
+        _photometric() + [A.Perspective(scale=(0.02, 0.06), p=0.5)],
+        bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"],
+                                 clip=True, min_visibility=0.3))
+    # Same transforms, without bbox_params — negatives have no object of
+    # interest for Albumentations to track.
+    return augment, A.Compose(_photometric())
 
 
 # ─── Main Generator ───────────────────────────────────────────────────────────
@@ -593,6 +701,7 @@ def generate_dataset(count: int, output_dir: str, aug_factor: int = 2, neg_ratio
     the detector sees true background/distractor examples during training
     rather than only ever seeing images that contain a KTP.
     """
+    augment, augment_negative = _build_augmenters()
     base_dir  = Path(output_dir)
     all_imgs  = []   # collect everything before splitting
 
@@ -727,6 +836,14 @@ if __name__ == "__main__":
                         help="Augmented copies per base image (default: 2)")
     parser.add_argument("--neg-ratio", type=float, default=0.15,
                         help="Negative (no-KTP) base scenes as a fraction of --count (default: 0.15)")
+    parser.add_argument("--with", dest="features", nargs="*", default=[], choices=sorted(FEATURES),
+                        help="Experimental scene/augmentation changes to switch on (see FEATURES)")
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
+    for name in args.features:
+        FEATURES[name] = True
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
 
     generate_dataset(args.count, args.output, args.aug_factor, args.neg_ratio)
