@@ -36,6 +36,7 @@ MIN_CONTOUR_AREA_RATIO = 0.15  # skip deskewing if no confident card-shaped cont
 # one are the same card seen twice, not two cards. YOLO's own NMS removes
 # most duplicates; this also catches a box around part of the card.
 DUPLICATE_BOX_OVERLAP = 0.5
+KTP_CLASS_NAME = "ktp"
 QUAD_APPROX_EPSILON_FRACTIONS = (0.01, 0.02, 0.03, 0.05, 0.08)  # tried in order until 4 points found
 
 
@@ -46,22 +47,28 @@ class YoloDetectionService(DetectionService):
 
     def detect_and_rectify(self, image: PILImage) -> tuple[PILImage, BoundingBox] | None:
         results = self._model.predict(image, verbose=False)[0]
+        ktp_class = _class_id(self._model.names, KTP_CLASS_NAME)
         confident = sorted(
             (
-                (tuple(box.xyxy[0].tolist()), float(box.conf[0]))
+                (tuple(box.xyxy[0].tolist()), float(box.conf[0]), int(box.cls[0]))
                 for box in results.boxes
                 if float(box.conf[0]) >= self._confidence_threshold
             ),
             key=lambda box: box[1],
             reverse=True,
         )
+        # A model may also know other ID documents ("other_document"). Any
+        # card counts toward a refusal, and one card boxed as both classes
+        # counts once, as whichever class is more confident.
         cards = self._distinct_cards(confident)
         if not cards:
             return None
         if len(cards) > 1:
             raise MultipleCardsDetectedError(len(cards))
+        if cards[0][2] != ktp_class:
+            return None
 
-        (x1, y1, x2, y2), confidence = cards[0]
+        (x1, y1, x2, y2), confidence, _ = cards[0]
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         bbox = BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2, detection_confidence=confidence)
 
@@ -73,12 +80,12 @@ class YoloDetectionService(DetectionService):
 
     @staticmethod
     def _distinct_cards(
-        boxes: list[tuple[tuple[float, float, float, float], float]],
-    ) -> list[tuple[tuple[float, float, float, float], float]]:
-        """Drops boxes that mostly overlap a more confident one. `boxes`
-        must be sorted by confidence, highest first.
+        boxes: list[tuple[tuple[float, float, float, float], float, int]],
+    ) -> list[tuple[tuple[float, float, float, float], float, int]]:
+        """Drops boxes that mostly overlap a more confident one, whatever
+        their class. `boxes` must be sorted by confidence, highest first.
         """
-        kept: list[tuple[tuple[float, float, float, float], float]] = []
+        kept: list[tuple[tuple[float, float, float, float], float, int]] = []
         for box in boxes:
             if all(_overlap_of_smaller(box[0], other[0]) <= DUPLICATE_BOX_OVERLAP for other in kept):
                 kept.append(box)
@@ -242,3 +249,11 @@ def _overlap_of_smaller(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     inter_h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
     smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
     return inter_w * inter_h / smaller if smaller > 0 else 0.0
+
+
+def _class_id(names: dict[int, str], name: str) -> int:
+    """The model's class index for `name`. A single-class model counts its
+    one class as that, whatever it was named."""
+    if len(names) == 1:
+        return next(iter(names))
+    return next(i for i, n in names.items() if n == name)

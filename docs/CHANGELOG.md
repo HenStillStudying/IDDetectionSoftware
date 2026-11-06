@@ -1358,3 +1358,27 @@ than redesigning the generator off a single sample.
     0.44) buries the card in static. `harsh_aug` uses a realistic range;
     the production recipe keeps the old default for reproducibility.
   - Next: train with real photos of ID documents from a public dataset.
+- **Groundwork for training on real ID-document photos (experiment not run
+  yet).**
+  - **Data:** MIDV-2020's 1000 phone photos and 1000 scans of mock ID
+    documents from 10 countries, with fictional data and generated faces.
+    Licensed CC BY-SA 2.5 (Bulatov et al., 2021); faces by Generated Photos.
+  - **Download:** the only reachable mirror, the Smart Engines FTP, has been
+    abused: someone uploaded a `Photo.scr` executable and other files next
+    to the dataset. Only the original tars were downloaded, both matched the
+    published MD5s, held nothing but JPGs and JSON, and were extracted with
+    Python's `data` tar filter, outside the repo.
+  - **`training/prepare_midv.py`** adds MIDV as a second class,
+    `other_document`, so the detector can learn real-photo conditions
+    without learning that any ID card is a KTP. Train/val is split by
+    document. Half the MIDV photos are stored sideways with an EXIF
+    rotate-90 tag and annotated upright; caught by drawing the labels, and
+    fixed with `exif_transpose`.
+  - **The detection service handles two-class models.** An
+    `other_document` alone is "no card", any second card of either class
+    still means `multiple_cards_detected`, and one card boxed as both
+    classes counts once, as the more confident. Single-class models behave
+    as before. 3 new tests (131 passing).
+  - The first training attempt was stopped by the system for low memory
+    within its first epoch, so there are no results yet. The plan is three
+    seeds, judged on the 28 real cards.
