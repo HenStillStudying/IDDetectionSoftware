@@ -23,6 +23,9 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    # 16 is ultralytics' default. A 3,000-image run at 16 was stopped by the
+    # OS for low memory on a 16 GB machine; 8 roughly halves training memory.
+    parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--project", default="./runs")
     parser.add_argument("--name", default="ktp_detector")
     args = parser.parse_args()
@@ -33,6 +36,7 @@ def main() -> None:
         epochs=args.epochs,
         imgsz=args.imgsz,
         workers=args.workers,
+        batch=args.batch,
         project=args.project,
         name=args.name,
     )

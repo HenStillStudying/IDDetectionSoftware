@@ -50,8 +50,11 @@ changelog.
   to 17 of the 28 real cards. The same recipe gave 17, 10 and 7 across
   three seeds, and the production recipe retrained gave 1. So synthetic
   metrics can't pick a good model, the production detector is partly a
-  lucky draw, and no generator change has yet been shown to help. Real
-  photos in training are the likely fix.
+  lucky draw, and no generator change has yet been shown to help.
+  Adding real photos of other ID documents (MIDV-2020) as a second class
+  made it worse (0-1/28): real KTPs were classed as the other documents.
+  Real KTP photos in training, or a detect-any-card-then-check-text design,
+  are the remaining options.
 - **NIKs on real cards are often wrong or missing.** Of the 16 real cards read,
   10 NIKs were valid, 4 had the wrong length, and 2 weren't read. The weaker
   fields there were `tanggal_lahir` (12/16 read), `provinsi` (12/16),

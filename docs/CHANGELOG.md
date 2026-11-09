@@ -1382,3 +1382,32 @@ than redesigning the generator off a single sample.
   - The first training attempt was stopped by the system for low memory
     within its first epoch, so there are no results yet. The plan is three
     seeds, judged on the 28 real cards.
+- **MIDV-2020 as a second class: failed, production detector kept.** Three
+  seeds of the production synthetic recipe plus MIDV photos and scans as
+  `other_document`, each scored on the 28 real inputs.
+  - **Real KTPs detected: 0, 1 and 0 of 28** (production: 16). Synthetic
+    checks didn't move: 30/30 detected, 458/510 fields, 0/40 false
+    positives.
+  - **Why:** counting the top box's class on the real inputs (aggregates
+    only), the real KTPs were boxed as `other_document` on 11, 6 and 7
+    inputs, and as `ktp` once. The class split learned "real photo vs
+    synthetic render" instead of "KTP vs other card". MIDV can't help a
+    `ktp` class that has no real photos behind it.
+  - **Production re-checked on the new two-class code: 16/28,** with the
+    same cards and statuses as before. Single-class models are unaffected.
+  - **Tally so far:** five recipes across about 12 runs, and none reliably
+    beat production. The closest, card size + harsh augmentation, got
+    17/28 on one seed but 10 and 7 on two others.
+  - **Next options:**
+    - A single-class "any card" detector, where MIDV's real photos should
+      help, followed by an OCR-based KTP check ("PROVINSI", "NIK", a
+      16-digit number).
+    - Real KTP photos in training. That needs consent covering training,
+      plus more photos so the 28 stay a clean test set.
+  - `train_detector.py` now takes `--batch`. The first attempt at this
+    experiment was stopped by the OS for low memory with Docker Desktop
+    running.
+  - **Process note:** a stopped background task in this environment
+    doesn't kill the scripts it launched. Two kept running and interfered
+    with an eval (rate-limit errors, weights swapped mid-run). Those
+    numbers were discarded and the eval re-run alone.
