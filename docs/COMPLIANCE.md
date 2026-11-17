@@ -37,6 +37,28 @@ there's a real deployment with real users to protect.
   and model weights — no real or synthetic PII-shaped content has ever
   been committed to this repo (verified repeatedly this session).
 
+**Real KTP photos used for testing and training:**
+- A small set of real KTPs (27 card fronts and one back) is used, with the
+  card owners' consent covering both testing and training the detector.
+  Names and other identifying details of the people involved are
+  deliberately not recorded in this repo.
+- The photos, the working copies made for labelling, the labels (box
+  coordinates only, never field values) and the training runs live in a
+  local folder outside OneDrive and outside the repo. Nothing derived from
+  them is committed, uploaded, or sent to any external service, including
+  cloud notebooks.
+- Scripts that touch them print aggregates or alphabetical positions only,
+  never file names or field values, and findings are documented
+  generically.
+- **The deployed detector's weights are derived personal data**: they were
+  trained on these cards. They stay on the local machine, outside OneDrive
+  and git (mounted into Docker via `KTP_WEIGHTS_DIR`), and are retained
+  only while the consent covers it. Labelling copies and intermediate
+  training runs are deleted once no longer needed.
+- If a card owner withdraws consent, their photo must be removed and the
+  detector retrained without it; the existing weights can't have one card
+  removed from them.
+
 **Baseline hygiene worth doing now** (cheap, no reason to wait):
 - Set an explicit, deliberate TTL on the Redis job data (both args and
   result) instead of relying on `arq`'s defaults implicitly — make the

@@ -45,7 +45,10 @@ def _yolo_line(cls: int, box, width: int, height: int) -> str:
             f"{(x2 - x1) / width:.6f} {(y2 - y1) / height:.6f}")
 
 
-def add_midv(midv_root: Path, output: Path) -> dict[str, int]:
+def add_midv(midv_root: Path, output: Path, train_docs: int = VAL_FROM_INDEX) -> dict[str, int]:
+    """`train_docs` caps training at documents 0..train_docs-1 of each type.
+    The documents between that and VAL_FROM_INDEX are left out entirely, so
+    they can serve as an unseen false-positive test set."""
     counts = {"train": 0, "val": 0}
     for subset in MIDV_SUBSETS:
         for annotation_file in sorted((midv_root / subset / "annotations").glob("*.json")):
@@ -55,7 +58,10 @@ def add_midv(midv_root: Path, output: Path) -> dict[str, int]:
                 box = _doc_box(entry["regions"])
                 if box is None:
                     continue
-                split = "val" if int(Path(entry["filename"]).stem) >= VAL_FROM_INDEX else "train"
+                index = int(Path(entry["filename"]).stem)
+                if train_docs <= index < VAL_FROM_INDEX:
+                    continue
+                split = "val" if index >= VAL_FROM_INDEX else "train"
                 with Image.open(midv_root / subset / "images" / doc_type / entry["filename"]) as img:
                     # Half the photos are stored sideways with an EXIF
                     # rotate-90 tag, and their annotations are in the
@@ -78,6 +84,8 @@ def main() -> None:
     parser.add_argument("--midv-root", required=True, type=Path)
     parser.add_argument("--synthetic", required=True, type=Path, help="Output of ktp_dataset_generator.py")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--train-docs-per-type", type=int, default=VAL_FROM_INDEX,
+                        help="Train on documents 0..N-1 of each type only (default: all below the val split)")
     args = parser.parse_args()
 
     # Synthetic KTP labels are already class 0 ("ktp"); copy them as they are.
@@ -88,7 +96,7 @@ def main() -> None:
                 shutil.copytree(src, dst, dirs_exist_ok=True)
             dst.mkdir(parents=True, exist_ok=True)
 
-    counts = add_midv(args.midv_root, args.output)
+    counts = add_midv(args.midv_root, args.output, args.train_docs_per_type)
     (args.output / "ktp.yaml").write_text(f"""\
 path: {args.output.resolve()}
 train: train/images

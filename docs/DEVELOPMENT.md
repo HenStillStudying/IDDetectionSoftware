@@ -216,8 +216,39 @@ KTPs (see "False-positive tested" in [CHANGELOG](CHANGELOG.md)).
 `backgrounds`, `scan_pages`), and `--seed` makes a dataset reproducible.
 **Judge a retrained detector on real photos, never on synthetic numbers
 alone.** Every run so far scored ~0.995 mAP50 on synthetic validation,
-while real-card detection ranged from 1/28 to 17/28 between runs. Keep the
-production weights until a new model beats them on the real set.
+while real-card detection ranged from 1 to 17 of the real cards between
+runs. Keep the production weights until a new model beats them on the real
+set.
+
+### Train on consented real KTP photos
+
+This is what the current default detector is (see the
+[CHANGELOG](CHANGELOG.md) entry "Detector trained on consented real KTPs").
+Only with photos whose owners agreed to training use, and under the rules in
+[COMPLIANCE](COMPLIANCE.md): working copies, labels and weights stay outside
+OneDrive and the repo, and scripts print counts only.
+
+```bash
+cd training
+# 1. Render the inputs, pre-fill boxes from the current model, write the page
+python prepare_real_labelling.py --source C:/ktp_sample/sample-ktp --work C:/ktp_sample/labelling
+#    Open C:/ktp_sample/labelling/label.html, box the whole card on each image, Export.
+# 2. Turn the export into YOLO labels (--negative for pages with no card front)
+python prepare_real_labelling.py --import-labels ~/Downloads/ktp_labels.json --negative <stem>
+# 3. 4-fold cross-validation, with MIDV-2020 mock foreign IDs as a second class
+python cross_validate_real.py --midv-root C:/midv_download
+```
+
+`cross_validate_real.py` generates the synthetic set once, trains one model
+per fold (about 35-40 min each on an RTX 4060 laptop GPU), scores every real
+input with a model that never saw it, and counts how often each model calls
+a held-out MIDV document a KTP. Re-running it skips folds already trained.
+Train the final model on all inputs with the same recipe, then point the
+stack at it with `KTP_WEIGHTS_DIR` in `.env`.
+
+Without the MIDV class, models trained on real KTPs called about half of
+the mock foreign IDs a KTP. The API allows 15 requests a minute per client,
+so any script that sends the real set through the API must pace itself.
 
 ## Test
 

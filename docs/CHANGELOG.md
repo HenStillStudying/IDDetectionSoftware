@@ -1411,3 +1411,60 @@ than redesigning the generator off a single sample.
     doesn't kill the scripts it launched. Two kept running and interfered
     with an eval (rate-limit errors, weights swapped mid-run). Those
     numbers were discarded and the eval re-run alone.
+- **Detector trained on consented real KTPs: now the default.** The
+  people whose cards are in the real test set agreed to their use for
+  training. The detector was retrained with them, judged by
+  cross-validation, and switched in.
+  - **Labelling.** `training/prepare_real_labelling.py` renders every input
+    the way the API sees it (EXIF rotation, 1600 px cap, PDF pages in
+    memory), pre-fills boxes from the production model, and writes an
+    offline page (`training/label_real_ktp.html`: no network, no libraries)
+    where the boxes were checked and the misses drawn by hand. Labels are
+    box coordinates only. One PDF page turned out to be the **back** of a
+    card, so the real set is **27 fronts plus 1 back**, used as a
+    negative. Earlier "x/28" figures counted that page as a missed card.
+  - **Cross-validation** (`training/cross_validate_real.py`). The 28 inputs
+    were split into 4 folds, pages of one PDF kept together. Each fold
+    trained on the production synthetic recipe plus the other folds' real
+    images (10 copies each), and was scored on the held-out fold by the
+    same detection service the API uses. Every input was scored once, by a
+    model that never saw it. About 20 min per fold on the local GPU.
+  - **Real KTPs alone over-generalised.** 27/27 held-out fronts detected,
+    against production's 16/27, but the models also called mock foreign
+    IDs (MIDV-2020) a KTP on 72-155 of 300 photos, against production's
+    60, and one called the card back a KTP.
+  - **Adding MIDV as a second class (`other_document`) fixed that.** With
+    700 MIDV images (35 documents per type) in training: **26/27 held-out
+    fronts detected, all boxes correct, 10 gained and none lost** against
+    production, and the card back rejected. On 1000 MIDV images left out
+    of training, the fold models called 0-1 a KTP; production called 103.
+    It failed before only because the `ktp` class had no real photos
+    behind it. `prepare_midv.py` now takes `--train-docs-per-type` to hold
+    MIDV documents out for this test.
+  - **Final model** trained on all 28 inputs with that recipe. MIDV
+    held-out: 0/1000 called a KTP. Synthetic test set: 93/93 KTPs, 0/11
+    no-card scenes.
+  - **Full pipeline on the 27 real fronts** (Docker stack, aggregates only):
+
+    | | New model | Production |
+    |---|---|---|
+    | Card detected | 27 | 17 |
+    | Valid NIK | **24** | 12 |
+    | `ok` / `low_confidence` / no card | 23 / 4 / 0 | 11 / 6 / 10 |
+
+    12 valid NIKs gained, none lost; both reject the card back. The new
+    model trained on these cards, so its detection count here is training
+    fit. The honest detection estimate is the cross-validation's 26/27.
+    Production scores 17 here rather than 16 because this run sends the
+    original files and lets the API rotate and resize them.
+  - **Deployed.** `docker-compose.yml` takes `KTP_WEIGHTS_DIR`, so the stack
+    can mount weights from outside OneDrive and the repo; the default is
+    unchanged. These weights are derived from real cards and are kept
+    local only (see `COMPLIANCE.md`). The API image had to be rebuilt: it
+    predated the two-class detection code.
+  - Found along the way: the API's 15-requests-a-minute limit rejects an
+    unpaced eval script (HTTP 429), so evaluation scripts must pace
+    requests. Docker Desktop on the dev machine crash-loops on stale socket
+    files after an unclean exit; moving
+    `%LOCALAPPDATA%\Docker\run` and `%LOCALAPPDATA%\docker-secrets-engine`
+    aside together fixes it.

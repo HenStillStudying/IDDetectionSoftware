@@ -22,8 +22,9 @@ changelog.
   guarantee a correct read. A mismatch now makes the result
   `low_confidence`, but a misread that happens to stay self-consistent, or
   hits a field the check doesn't compare, can still come back `ok`. The check was also
-  skipped on 7 of the 16 cards read, because the NIK was invalid or the birth
-  date wasn't read confidently.
+  skipped on 7 of the 16 cards the old detector read, because the NIK was
+  invalid or the birth date wasn't read confidently. These consistency
+  figures predate the retrained detector and haven't been re-measured.
 - **Forensics is EXIF-only.** It only reports that a photo has no EXIF data,
   which is common and innocent. Error-level analysis (ELA) was built,
   evaluated, and shelved because it flagged the genuine real card as
@@ -34,32 +35,29 @@ changelog.
 
 ## Accuracy & coverage
 
-- **The detector misses almost half of real cards.** On 28 consented real KTP
-  inputs (23 photos and 5 PDF pages), it found a card in only **16 (57%)**:
-  14/23 photos and 2/5 PDF pages. It is trained on synthetic data only, and
-  that gap shows:
-  - Detection confidence on real cards is 0.53–0.93, against ~0.96 on synthetic
-    ones.
-  - Inspecting the misses found **bad lighting and blur** behind several of
-    them: real photo conditions harsher than the synthetic augmentation.
-  - Most misses still got a weak box (0.07–0.38) covering 70–90% of the image,
-    which also suggests close-up or tightly cropped cards that fill the frame,
-    a layout the synthetic scenes rarely show. A few got no box at all.
-- **Retraining the detector is a lottery on real photos.** Retrained models
-  all score ~0.995 mAP50 on synthetic validation, yet find anywhere from 1
-  to 17 of the 28 real cards. The same recipe gave 17, 10 and 7 across
-  three seeds, and the production recipe retrained gave 1. So synthetic
-  metrics can't pick a good model, the production detector is partly a
-  lucky draw, and no generator change has yet been shown to help.
-  Adding real photos of other ID documents (MIDV-2020) as a second class
-  made it worse (0-1/28): real KTPs were classed as the other documents.
-  Real KTP photos in training, or a detect-any-card-then-check-text design,
-  are the remaining options.
-- **NIKs on real cards are often wrong or missing.** Of the 16 real cards read,
-  10 NIKs were valid, 4 had the wrong length, and 2 weren't read. The weaker
-  fields there were `tanggal_lahir` (12/16 read), `provinsi` (12/16),
-  `kota_kabupaten` (11/16) and `golongan_darah` (8/16). Field values weren't
-  compared against ground truth, so these are read rates, not accuracy.
+- **Real-card accuracy rests on 27 cards, and there is no clean test set
+  left.** The detector is now trained on all 27 consented real KTP fronts
+  (plus one card back). Its expected detection rate, **26/27**, comes from
+  4-fold cross-validation, not from cards it has never seen. Small sample:
+  one card more or less moves it by ~4 points. Any new consented photos
+  should be kept out of training as a fresh test set.
+  - Cross-validation could be optimistic if two inputs show the same
+    physical card and landed in different folds. Not checked.
+  - Every fold trained once. Retraining on synthetic data alone swung
+    between 1 and 17 of the real cards across seeds; with real cards in
+    training, all four folds did well, but that is not a seed study.
+- **The detector's weights are personal data.** They are derived from real
+  cards, so they live outside the repo and OneDrive and can't be shared or
+  committed. Anyone else running this project has to train their own, and
+  the synthetic-only recipe they can reproduce finds far fewer real cards
+  (16/27 for the old production model).
+- **3 of 27 real cards are found but their NIK still fails validation.**
+  Through the full pipeline, 24 of the 27 NIKs are valid. The remaining
+  failures are OCR reads, not detection. The earlier read rates on the
+  weaker fields (`tanggal_lahir`, `provinsi`, `kota_kabupaten`,
+  `golongan_darah`, measured on the old detector's 16 cards) haven't been
+  re-measured. Field values aren't compared against ground truth, so these
+  are read rates, not accuracy.
 - **Free-text fields are the weak spot.** On synthetic data: `alamat` 16/30,
   `kota_kabupaten` 24/30, `nama`, `kewarganegaraan` and `berlaku_hingga` 25/30.
   Most failures are single-character OCR noise from the fast `PP-OCRv6_small`
